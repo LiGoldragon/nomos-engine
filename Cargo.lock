@@ -530,19 +530,21 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 [[package]]
 name = "signal-nomos"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-nomos.git?rev=7194a5ea91159520cad70e3be11df3044c3675ad#7194a5ea91159520cad70e3be11df3044c3675ad"
+source = "git+https://github.com/LiGoldragon/signal-nomos.git?rev=ebcfd036ee38bb8251f816fd06fbf52d3f0d140a#ebcfd036ee38bb8251f816fd06fbf52d3f0d140a"
 dependencies = [
  "rkyv",
  "signal-sema-storage",
+ "thiserror",
 ]
 
 [[package]]
 name = "signal-schema"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/signal-schema.git?rev=fcc929bdf3f348376e66eb8a58a0b0d1a3ca57dd#fcc929bdf3f348376e66eb8a58a0b0d1a3ca57dd"
+source = "git+https://github.com/LiGoldragon/signal-schema.git?rev=091bb4be754494568be3897304be17d7c5563b7b#091bb4be754494568be3897304be17d7c5563b7b"
 dependencies = [
  "rkyv",
  "signal-sema-storage",
+ "thiserror",
 ]
 
 [[package]]
