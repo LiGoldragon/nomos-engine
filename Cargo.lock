@@ -115,7 +115,7 @@ dependencies = [
 [[package]]
 name = "core-nomos"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/core-nomos.git?rev=8ef3985ba0f769d1b4b04ea1130b3df7536e488f#8ef3985ba0f769d1b4b04ea1130b3df7536e488f"
+source = "git+https://github.com/LiGoldragon/core-nomos.git?rev=619df0afb9959d1673994ff29bcaa95181e006d5#619df0afb9959d1673994ff29bcaa95181e006d5"
 dependencies = [
  "content-identity",
  "core-logos",
