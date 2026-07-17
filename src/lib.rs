@@ -141,8 +141,15 @@ impl Message<Dispatch> for NexusPlane {
                 };
                 let names = NameTable::from_archive_bytes(&names.0)
                     .map_err(|error| Error::Engine(error.to_string()))?;
-                let lowering = MacroPackage::wire_fixture()
-                    .apply(&core, &names)
+                // LEAN `engine-selects-enriched`: `Request::Transform` carries no
+                // package selector, so the engine applies the enriched package
+                // unconditionally — declarations plus generation classes
+                // A/B/C-stub/D in the golden's document order. The plain and wire
+                // fixtures remain available on `MacroPackage` for a future request
+                // surface that distinguishes them. Trigger to revisit: adding a
+                // package selector to the Nomos transform request.
+                let lowering = MacroPackage::enriched_fixture()
+                    .apply_enriched(&core, &names)
                     .map_err(|error| Error::Engine(error.to_string()))?;
                 let logos_names = NameTableBytes(
                     lowering
