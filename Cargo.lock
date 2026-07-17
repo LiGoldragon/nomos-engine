@@ -104,7 +104,7 @@ dependencies = [
 [[package]]
 name = "core-logos"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/core-logos.git?rev=17cbd7596df203e0717fe079b7688cc60ec05e4b#17cbd7596df203e0717fe079b7688cc60ec05e4b"
+source = "git+https://github.com/LiGoldragon/core-logos.git?rev=4edf5de942105a1b870f8738968a9d141a4304cc#4edf5de942105a1b870f8738968a9d141a4304cc"
 dependencies = [
  "content-identity",
  "name-table",
@@ -115,20 +115,21 @@ dependencies = [
 [[package]]
 name = "core-nomos"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/core-nomos.git?rev=d2f705808ed555cae0ead6a9181970ef1fdc0430#d2f705808ed555cae0ead6a9181970ef1fdc0430"
+source = "git+https://github.com/LiGoldragon/core-nomos.git?rev=9b5d7360906a5c7ced08d600a700fcafea9eae5b#9b5d7360906a5c7ced08d600a700fcafea9eae5b"
 dependencies = [
  "content-identity",
  "core-logos",
  "core-schema",
  "name-table",
  "rkyv",
+ "textual-rust",
  "thiserror",
 ]
 
 [[package]]
 name = "core-schema"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/core-schema.git?rev=566544eda56a52fb1b5185d8c634dd9a9f2a47e0#566544eda56a52fb1b5185d8c634dd9a9f2a47e0"
+source = "git+https://github.com/LiGoldragon/core-schema.git?rev=72d1c98596f2bba96a80d8c75b16780c4a0dfefe#72d1c98596f2bba96a80d8c75b16780c4a0dfefe"
 dependencies = [
  "content-identity",
  "name-table",
@@ -487,6 +488,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
+name = "prettyplease"
+version = "0.2.37"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "479ca8adacdd7ce8f1fb39ce9ecccbfe93a3f1344b3d0d97f20bc0196208f62b"
+dependencies = [
+ "proc-macro2",
+ "syn",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -656,7 +667,7 @@ dependencies = [
 [[package]]
 name = "signal-nomos"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-nomos.git?rev=afdf62f371f5b52eab5122dc0de6d1bf40ba753c#afdf62f371f5b52eab5122dc0de6d1bf40ba753c"
+source = "git+https://github.com/LiGoldragon/signal-nomos.git?rev=88c214ed35c9346cd5d399b2d51c1dd9313a3d59#88c214ed35c9346cd5d399b2d51c1dd9313a3d59"
 dependencies = [
  "rkyv",
  "signal-sema-storage",
@@ -666,7 +677,7 @@ dependencies = [
 [[package]]
 name = "signal-schema"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/signal-schema.git?rev=1b090702e5c2f792a64e2cf1c51a5698505d9bad#1b090702e5c2f792a64e2cf1c51a5698505d9bad"
+source = "git+https://github.com/LiGoldragon/signal-schema.git?rev=7e9602c7b0ff2cffc58aff5a9997a5a6dc8c5a04#7e9602c7b0ff2cffc58aff5a9997a5a6dc8c5a04"
 dependencies = [
  "rkyv",
  "signal-sema-storage",
@@ -676,7 +687,7 @@ dependencies = [
 [[package]]
 name = "signal-sema-storage"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-sema-storage.git?rev=bd6cd6c4f2f020ad04427fc8ca86ca22d9cf4e6c#bd6cd6c4f2f020ad04427fc8ca86ca22d9cf4e6c"
+source = "git+https://github.com/LiGoldragon/signal-sema-storage.git?rev=fe925a0afeb0b5da1dad06bef06e3db4b46bac38#fe925a0afeb0b5da1dad06bef06e3db4b46bac38"
 dependencies = [
  "content-identity",
  "core-logos",
@@ -730,6 +741,21 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "textual-rust"
+version = "0.1.0"
+source = "git+https://github.com/LiGoldragon/textual-rust.git?rev=56eb2ab30026206288e80fd7f37a6d4010536e0c#56eb2ab30026206288e80fd7f37a6d4010536e0c"
+dependencies = [
+ "content-identity",
+ "core-logos",
+ "name-table",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "syn",
+ "thiserror",
 ]
 
 [[package]]
