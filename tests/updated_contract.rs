@@ -3,6 +3,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use core_nomos::{EscapeKind, MacroPackage};
 use nomos_engine::Runtime;
 use rkyv::{Archive, Deserialize};
 use signal_nomos::{Reply as NomosReply, Request as NomosRequest};
@@ -41,6 +42,15 @@ where
         + Deserialize<T, rkyv::api::high::HighDeserializer<rkyv::rancor::Error>>,
 {
     rkyv::from_bytes(bytes)
+}
+
+#[test]
+fn nomos_package_checks_the_closed_realize_and_splice_escape_set_before_daemon_use() {
+    assert_eq!(EscapeKind::Realize.spelling(), "$x");
+    assert_eq!(EscapeKind::Splice.spelling(), "$@xs");
+    MacroPackage::enriched_fixture()
+        .check()
+        .expect("the daemon fixture passes definition-time escape checks");
 }
 
 #[test]
