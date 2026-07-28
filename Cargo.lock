@@ -428,15 +428,15 @@ dependencies = [
 
 [[package]]
 name = "nomos-engine"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "core-nomos",
  "kameo",
  "name-table",
  "notify",
  "rkyv",
+ "signal-ethos",
  "signal-nomos",
- "signal-schema",
  "signal-sema-storage",
  "thiserror",
  "tokio",
@@ -644,6 +644,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
+name = "signal-ethos"
+version = "0.3.0"
+source = "git+https://github.com/LiGoldragon/signal-ethos.git?rev=30c96f026e9e3180ef7b31dfe167d1e6c6c7743b#30c96f026e9e3180ef7b31dfe167d1e6c6c7743b"
+dependencies = [
+ "rkyv",
+ "signal-sema-storage",
+ "thiserror",
+]
+
+[[package]]
 name = "signal-frame"
 version = "0.3.0"
 source = "git+https://github.com/LiGoldragon/signal-frame.git?rev=f46872e7e8edae5264c892443d415a273b231234#f46872e7e8edae5264c892443d415a273b231234"
@@ -668,16 +678,6 @@ dependencies = [
 name = "signal-nomos"
 version = "0.1.0"
 source = "git+https://github.com/LiGoldragon/signal-nomos.git?rev=2c09647bb08825806c1485ba11aca844d4b60fff#2c09647bb08825806c1485ba11aca844d4b60fff"
-dependencies = [
- "rkyv",
- "signal-sema-storage",
- "thiserror",
-]
-
-[[package]]
-name = "signal-schema"
-version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/signal-schema.git?rev=bc68dc8fa1b16b00156ca36e2690fd77fda91a52#bc68dc8fa1b16b00156ca36e2690fd77fda91a52"
 dependencies = [
  "rkyv",
  "signal-sema-storage",

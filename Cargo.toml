@@ -1,6 +1,6 @@
 [package]
 name="nomos-engine"
-version="0.1.0"
+version="0.2.0"
 edition="2024"
 rust-version="1.89"
 license="MIT OR Apache-2.0"
@@ -13,7 +13,7 @@ name-table={git="https://github.com/LiGoldragon/name-table.git",rev="c3237f77c08
 notify="8"
 rkyv={version="0.8",features=["bytecheck"]}
 signal-nomos={git="https://github.com/LiGoldragon/signal-nomos.git",rev="2c09647bb08825806c1485ba11aca844d4b60fff"}
-signal-schema={git="https://github.com/LiGoldragon/signal-schema.git",rev="bc68dc8fa1b16b00156ca36e2690fd77fda91a52"}
+signal-ethos={git="https://github.com/LiGoldragon/signal-ethos.git",rev="30c96f026e9e3180ef7b31dfe167d1e6c6c7743b"}
 signal-sema-storage={git="https://github.com/LiGoldragon/signal-sema-storage.git",rev="31ab48608a3c2eab0733dcb16a3351251a70789d"}
 tokio={version="1",features=["macros","rt-multi-thread","net","io-util","sync","time"]}
 thiserror="2"

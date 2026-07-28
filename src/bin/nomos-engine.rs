@@ -106,13 +106,19 @@ async fn main() -> Result<(), AnyError> {
         Some("daemon") => {
             let socket = PathBuf::from(arguments.next().unwrap_or_else(|| "/tmp/new-language-engine/nomos.sock".into()));
             let sema = PathBuf::from(arguments.next().unwrap_or_else(|| "/tmp/new-language-engine/sema.sock".into()));
-            let schema = PathBuf::from(arguments.next().unwrap_or_else(|| "/tmp/new-language-engine/schema.sock".into()));
+            let ethos = PathBuf::from(
+                arguments
+                    .next()
+                    // Preserve the wired socket default during this terminology-only
+                    // train; the storage migration owns any runtime-path change.
+                    .unwrap_or_else(|| "/tmp/new-language-engine/schema.sock".into()),
+            );
             if let Some(parent) = socket.parent() { std::fs::create_dir_all(parent)?; }
             let _ = std::fs::remove_file(&socket);
             let listener = UnixListener::bind(&socket)?;
             let runtime = Runtime::new(sema);
             let relay_runtime = runtime.clone();
-            tokio::spawn(async move { Relay::supervise(schema, relay_runtime).await; });
+            tokio::spawn(async move { Relay::supervise(ethos, relay_runtime).await; });
             println!("READY {}", socket.display());
             loop {
                 let (stream, _) = listener.accept().await?;
@@ -122,7 +128,7 @@ async fn main() -> Result<(), AnyError> {
         }
         Some("transform") => {
             let socket = PathBuf::from(arguments.next().ok_or("socket")?);
-            let hash = ContentHash(Parser::hash(&arguments.next().ok_or("schema hash")?)?);
+            let hash = ContentHash(Parser::hash(&arguments.next().ok_or("Ethos hash")?)?);
             println!("{:?}", Client::exchange(&socket, &Request::Transform {
                 scope: FixtureScope(1), schema: hash, output_slot: SlotIdentifier(1),
             }).await?);
@@ -132,38 +138,34 @@ async fn main() -> Result<(), AnyError> {
             let socket = PathBuf::from(arguments.next().ok_or("socket")?);
             Client::subscribe(&socket).await
         }
-        _ => Err("usage: nomos-engine daemon [socket] [sema-socket] [schema-socket] | transform <socket> <hash> | subscribe <socket>".into()),
+        _ => Err("usage: nomos-engine daemon [socket] [sema-socket] [ethos-socket] | transform <socket> <hash> | subscribe <socket>".into()),
     }
 }
 
 struct Relay;
 impl Relay {
-    async fn supervise(schema: PathBuf, runtime: Runtime) {
+    async fn supervise(ethos: PathBuf, runtime: Runtime) {
         loop {
-            let _ = Self::connection(&schema, &runtime).await;
-            if SocketReadiness::new(schema.clone())
-                .changed()
-                .await
-                .is_err()
-            {
+            let _ = Self::connection(&ethos, &runtime).await;
+            if SocketReadiness::new(ethos.clone()).changed().await.is_err() {
                 return;
             }
         }
     }
-    async fn connection(schema: &PathBuf, runtime: &Runtime) -> Result<(), AnyError> {
-        let mut socket = FramedSocket::connect(schema).await?;
+    async fn connection(ethos: &PathBuf, runtime: &Runtime) -> Result<(), AnyError> {
+        let mut socket = FramedSocket::connect(ethos).await?;
         socket
-            .request(signal_schema::encode_request(
-                &signal_schema::Request::Subscribe {
+            .request(signal_ethos::encode_request(
+                &signal_ethos::Request::Subscribe {
                     scope: FixtureScope(1),
                     kind: Some(DocumentKind::TypeSchema),
                 },
             )?)
             .await?;
-        let _: signal_schema::Reply = Decoder::value(&socket.reply_payload().await?)?;
+        let _: signal_ethos::Reply = Decoder::value(&socket.reply_payload().await?)?;
         loop {
-            if let signal_schema::Reply::Event(event) =
-                Decoder::value::<signal_schema::Reply>(&socket.reply_payload().await?)?
+            if let signal_ethos::Reply::Event(event) =
+                Decoder::value::<signal_ethos::Reply>(&socket.reply_payload().await?)?
             {
                 runtime
                     .request(Request::Transform {
