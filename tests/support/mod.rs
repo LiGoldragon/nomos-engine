@@ -444,6 +444,15 @@ fn collect_term(
         TemplateTerm::Future(TemplateFuture::Invoke(transformer)) => {
             include_ancestors(transformer.encoded_id(), identities);
         }
+        TemplateTerm::Future(TemplateFuture::RecursiveInvoke { payload }) => {
+            include_ancestors(payload.target().encoded_id(), identities);
+            include_ancestors(payload.subject_binding().encoded_id(), identities);
+            include_ancestors(payload.constructor_binding().encoded_id(), identities);
+            include_ancestors(payload.children_binding().encoded_id(), identities);
+        }
+        TemplateTerm::Future(TemplateFuture::InsertAt { payload }) => {
+            include_ancestors(payload.target().encoded_id(), identities);
+        }
         TemplateTerm::Scalar(_) => {}
     }
 }

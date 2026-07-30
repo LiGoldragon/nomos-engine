@@ -7,6 +7,10 @@ use signal_nomos::{
     encode_request,
 };
 
+#[expect(
+    dead_code,
+    reason = "the one-shot freezer uses only the authored fixture half of shared support"
+)]
 mod support;
 
 const ADMIN_UID: u32 = 4_100;

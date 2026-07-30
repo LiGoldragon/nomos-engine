@@ -16,7 +16,15 @@
         pkgs = import nixpkgs { inherit system; };
         rust = rust-build.lib.${system}.fromPkgs pkgs;
         inherit (rust) craneLib toolchain;
-        src = rust.cleanSource { root = ./.; };
+        compatibilityGoldenFilter =
+          path: type:
+          type == "regular"
+          && pkgs.lib.hasInfix "/tests/goldens/" path
+          && pkgs.lib.hasSuffix ".sema" path;
+        src = rust.cleanSource {
+          root = ./.;
+          extraFilters = [ compatibilityGoldenFilter ];
+        };
         commonArguments = { inherit src; strictDeps = true; };
         cargoArtifacts = craneLib.buildDepsOnly commonArguments;
       in

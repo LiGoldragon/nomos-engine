@@ -6,6 +6,10 @@ use signal_nomos::{
     GenerationSelection, NomosSlotId, Reply, Request, SlotGeneration, TransformSelector,
 };
 
+#[expect(
+    dead_code,
+    reason = "the shared fixture surface is intentionally broader than this compatibility test"
+)]
 mod support;
 
 const ADMIN_UID: u32 = 4_100;
