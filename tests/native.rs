@@ -129,6 +129,17 @@ fn production_sources_exclude_legacy_and_central_storage_paths() {
     assert!(store.contains("EngineOpen::new"));
     assert!(store.contains("NativeAuthoredEvaluator"));
     assert!(store.contains("NativeLogosPopulation::<EngineLogosNameTree>::from_archive_bytes"));
+    assert!(manifest.contains("version = \"0.5.0\""));
+    for revision in [
+        "17143fb8a237868394f8a1894e329831bfc0d973",
+        "4453dfd9b16e699b9050c9fb7cd28096d8bda7a5",
+        "c8a6b63595e259c21cd0d58e3e7f49213991c774",
+    ] {
+        assert!(
+            manifest.contains(revision),
+            "missing coherent pin {revision}"
+        );
+    }
 }
 
 #[test]

@@ -1,7 +1,10 @@
+use std::mem::{align_of, size_of};
+
 use capsule_content_identity::{CapsuleIdentity, PortableArchive};
 use core_ethos::{
-    WholeEthos, WholeEthosAttributes, WholeEthosTypeReference, WholeEthosVisibility,
-    WholeEthosWrappedField,
+    WholeEthos, WholeEthosAttributes, WholeEthosEnumeration, WholeEthosItem, WholeEthosNewtype,
+    WholeEthosTypeApplication, WholeEthosTypeReference, WholeEthosVariant,
+    WholeEthosVariantPayload, WholeEthosVisibility, WholeEthosWrappedField,
 };
 use core_nomos::{
     AuthoredTransformerSet, LoadedNomosPopulation, NameTransform, NameTreeProjectionVersion,
@@ -66,6 +69,95 @@ enum ForgedWholeEthosVariantPayload {
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone)]
 struct ForgedWholeEthosTupleFields(Vec<WholeEthosTypeReference>);
 
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone)]
+struct NamedForgedWholeEthos {
+    items: Vec<NamedForgedWholeEthosItem>,
+}
+
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone)]
+enum NamedForgedWholeEthosItem {
+    Newtype(NamedForgedWholeEthosNewtype),
+    Enumeration(NamedForgedWholeEthosEnumeration),
+}
+
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone)]
+struct NamedForgedWholeEthosNewtype {
+    name: VocabularyEncodedId,
+    visibility: WholeEthosVisibility,
+    attributes: WholeEthosAttributes,
+    wrapped_field: WholeEthosWrappedField,
+}
+
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone)]
+struct NamedForgedWholeEthosEnumeration {
+    name: VocabularyEncodedId,
+    visibility: WholeEthosVisibility,
+    attributes: WholeEthosAttributes,
+    variants: Vec<ForgedWholeEthosVariant>,
+}
+
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone)]
+struct NamedForgedWholeEthosVariant {
+    name: VocabularyEncodedId,
+    attributes: WholeEthosAttributes,
+    payload: ForgedWholeEthosVariantPayload,
+}
+
+macro_rules! assert_forged_archive_compatible {
+    ($positional_type:ty, $named_type:ty, $positional:expr, $named:expr) => {{
+        let positional = $positional;
+        let named = $named;
+        let positional_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&positional)
+            .expect("archive positional forged carrier");
+        let named_bytes =
+            rkyv::to_bytes::<rkyv::rancor::Error>(&named).expect("archive named forged carrier");
+
+        assert_eq!(
+            positional_bytes.as_slice(),
+            named_bytes.as_slice(),
+            "positional and named forged carriers must emit identical bytes",
+        );
+        assert_eq!(
+            size_of::<rkyv::Archived<$positional_type>>(),
+            size_of::<rkyv::Archived<$named_type>>(),
+            "archived sizes must match",
+        );
+        assert_eq!(
+            align_of::<rkyv::Archived<$positional_type>>(),
+            align_of::<rkyv::Archived<$named_type>>(),
+            "archived alignments must match",
+        );
+
+        let _: &rkyv::Archived<$positional_type> =
+            rkyv::access::<rkyv::Archived<$positional_type>, rkyv::rancor::Error>(&named_bytes)
+                .expect("access named bytes through positional archived layout");
+        let _: &rkyv::Archived<$named_type> =
+            rkyv::access::<rkyv::Archived<$named_type>, rkyv::rancor::Error>(&positional_bytes)
+                .expect("access positional bytes through named archived layout");
+
+        let positional_from_named =
+            rkyv::from_bytes::<$positional_type, rkyv::rancor::Error>(&named_bytes)
+                .expect("restore positional forged carrier from named bytes");
+        let named_from_positional =
+            rkyv::from_bytes::<$named_type, rkyv::rancor::Error>(&positional_bytes)
+                .expect("restore named forged carrier from positional bytes");
+        assert_eq!(
+            rkyv::to_bytes::<rkyv::rancor::Error>(&positional_from_named)
+                .expect("reserialize positional carrier restored from named bytes")
+                .as_slice(),
+            named_bytes.as_slice(),
+        );
+        assert_eq!(
+            rkyv::to_bytes::<rkyv::rancor::Error>(&named_from_positional)
+                .expect("reserialize named carrier restored from positional bytes")
+                .as_slice(),
+            positional_bytes.as_slice(),
+        );
+
+        named_bytes
+    }};
+}
+
 fn population(version: NameTreeProjectionVersion) -> core_nomos::SealedNomosPopulation {
     LoadedNomosPopulation::from_typed(
         AuthoredTransformerSet::try_new(Vec::new()).expect("empty authored set"),
@@ -111,6 +203,143 @@ fn vocabulary_id(root: VocabularyRoot, chain: &[u16]) -> VocabularyEncodedId {
             .collect(),
     )
     .expect("non-empty identity")
+}
+
+// Trait exception — the proper trait cannot be determined: this entry point's
+// contract is supplied by Rust's test harness.
+#[test]
+fn named_fields_preserve_forged_whole_ethos_archives() {
+    let newtype_name = vocabulary_id(VocabularyRoot::Universal, &[500, 1]);
+    let application_head = vocabulary_id(VocabularyRoot::Universal, &[600, 3]);
+    let application_payload = vocabulary_id(VocabularyRoot::Universal, &[600, 5, 7]);
+    let wrapped_field = WholeEthosWrappedField::new(
+        WholeEthosVisibility::Private,
+        WholeEthosTypeReference::Application(WholeEthosTypeApplication::new(
+            application_head.clone(),
+            WholeEthosTypeReference::Identity(application_payload.clone()),
+        )),
+    );
+    let positional_newtype = ForgedWholeEthosNewtype(
+        newtype_name.clone(),
+        WholeEthosVisibility::Public,
+        WholeEthosAttributes::empty(),
+        wrapped_field.clone(),
+    );
+    let named_newtype = NamedForgedWholeEthosNewtype {
+        name: newtype_name.clone(),
+        visibility: WholeEthosVisibility::Public,
+        attributes: WholeEthosAttributes::empty(),
+        wrapped_field: wrapped_field.clone(),
+    };
+    let named_newtype_bytes = assert_forged_archive_compatible!(
+        ForgedWholeEthosNewtype,
+        NamedForgedWholeEthosNewtype,
+        positional_newtype,
+        named_newtype.clone()
+    );
+    let current_newtype =
+        rkyv::from_bytes::<WholeEthosNewtype, rkyv::rancor::Error>(&named_newtype_bytes)
+            .expect("named forged newtype restores through current WholeEthosNewtype");
+    assert_eq!(current_newtype.name(), &newtype_name);
+    assert_eq!(current_newtype.visibility(), &WholeEthosVisibility::Public);
+    assert_eq!(current_newtype.wrapped_field(), &wrapped_field);
+
+    let variant_name = vocabulary_id(VocabularyRoot::Universal, &[500, 2, 11]);
+    let variant_references = vec![
+        WholeEthosTypeReference::Identity(vocabulary_id(VocabularyRoot::Universal, &[700, 13])),
+        WholeEthosTypeReference::Application(WholeEthosTypeApplication::new(
+            vocabulary_id(VocabularyRoot::Universal, &[700, 17]),
+            WholeEthosTypeReference::Identity(vocabulary_id(
+                VocabularyRoot::Universal,
+                &[700, 19, 23],
+            )),
+        )),
+    ];
+    let variant_payload = ForgedWholeEthosVariantPayload::Tuple(ForgedWholeEthosTupleFields(
+        variant_references.clone(),
+    ));
+    let positional_variant = ForgedWholeEthosVariant(
+        variant_name.clone(),
+        WholeEthosAttributes::empty(),
+        variant_payload.clone(),
+    );
+    let named_variant = NamedForgedWholeEthosVariant {
+        name: variant_name.clone(),
+        attributes: WholeEthosAttributes::empty(),
+        payload: variant_payload.clone(),
+    };
+    let named_variant_bytes = assert_forged_archive_compatible!(
+        ForgedWholeEthosVariant,
+        NamedForgedWholeEthosVariant,
+        positional_variant.clone(),
+        named_variant
+    );
+    let current_variant =
+        rkyv::from_bytes::<WholeEthosVariant, rkyv::rancor::Error>(&named_variant_bytes)
+            .expect("named forged variant restores through current WholeEthosVariant");
+    assert_eq!(current_variant.name(), &variant_name);
+    let WholeEthosVariantPayload::Tuple(current_fields) = current_variant.payload() else {
+        panic!("meaningful forged variant retains its tuple payload")
+    };
+    assert_eq!(current_fields.fields(), variant_references);
+
+    let enumeration_name = vocabulary_id(VocabularyRoot::Universal, &[500, 2]);
+    let positional_variants = vec![
+        ForgedWholeEthosVariant(
+            vocabulary_id(VocabularyRoot::Universal, &[500, 2, 3]),
+            WholeEthosAttributes::empty(),
+            ForgedWholeEthosVariantPayload::Unit,
+        ),
+        positional_variant,
+    ];
+    let positional_enumeration = ForgedWholeEthosEnumeration(
+        enumeration_name.clone(),
+        WholeEthosVisibility::Private,
+        WholeEthosAttributes::empty(),
+        positional_variants.clone(),
+    );
+    let named_enumeration = NamedForgedWholeEthosEnumeration {
+        name: enumeration_name.clone(),
+        visibility: WholeEthosVisibility::Private,
+        attributes: WholeEthosAttributes::empty(),
+        variants: positional_variants,
+    };
+    let named_enumeration_bytes = assert_forged_archive_compatible!(
+        ForgedWholeEthosEnumeration,
+        NamedForgedWholeEthosEnumeration,
+        positional_enumeration,
+        named_enumeration.clone()
+    );
+    let current_enumeration =
+        rkyv::from_bytes::<WholeEthosEnumeration, rkyv::rancor::Error>(&named_enumeration_bytes)
+            .expect("named forged enumeration restores through current WholeEthosEnumeration");
+    assert_eq!(current_enumeration.name(), &enumeration_name);
+    assert_eq!(current_enumeration.variants().len(), 2);
+
+    let named_whole = NamedForgedWholeEthos {
+        items: vec![
+            NamedForgedWholeEthosItem::Newtype(named_newtype),
+            NamedForgedWholeEthosItem::Enumeration(named_enumeration),
+        ],
+    };
+    let named_whole_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&named_whole)
+        .expect("archive named forged WholeEthos envelope");
+    let current_whole = WholeEthos::from_archive_bytes(&named_whole_bytes)
+        .expect("named forged bytes restore directly through current WholeEthos");
+    assert_eq!(
+        current_whole,
+        WholeEthos::new(vec![
+            WholeEthosItem::Newtype(current_newtype),
+            WholeEthosItem::Enumeration(current_enumeration),
+        ])
+    );
+    assert_eq!(
+        current_whole
+            .to_archive_bytes()
+            .expect("reserialize current WholeEthos restored from named forged bytes")
+            .as_slice(),
+        named_whole_bytes.as_slice(),
+    );
 }
 
 #[test]

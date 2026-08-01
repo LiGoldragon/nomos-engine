@@ -132,8 +132,8 @@ dependencies = [
 
 [[package]]
 name = "core-ethos"
-version = "0.20.0"
-source = "git+https://github.com/LiGoldragon/core-ethos.git?rev=736460fdafbd65d6500fe15e6ae8844b42a39e7c#736460fdafbd65d6500fe15e6ae8844b42a39e7c"
+version = "0.22.0"
+source = "git+https://github.com/LiGoldragon/core-ethos.git?rev=17143fb8a237868394f8a1894e329831bfc0d973#17143fb8a237868394f8a1894e329831bfc0d973"
 dependencies = [
  "content-identity 0.3.0",
  "content-identity 0.4.0",
@@ -165,8 +165,8 @@ dependencies = [
 
 [[package]]
 name = "core-nomos"
-version = "0.27.0"
-source = "git+https://github.com/LiGoldragon/core-nomos.git?rev=58fd8036bffcb3cff6e27af4db25690764ecc768#58fd8036bffcb3cff6e27af4db25690764ecc768"
+version = "0.29.0"
+source = "git+https://github.com/LiGoldragon/core-nomos.git?rev=4453dfd9b16e699b9050c9fb7cd28096d8bda7a5#4453dfd9b16e699b9050c9fb7cd28096d8bda7a5"
 dependencies = [
  "content-identity 0.3.0",
  "content-identity 0.5.0",
@@ -347,7 +347,7 @@ dependencies = [
 
 [[package]]
 name = "nomos-engine"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "content-identity 0.5.0",
  "core-ethos",
@@ -636,8 +636,8 @@ dependencies = [
 
 [[package]]
 name = "signal-nomos"
-version = "0.4.0"
-source = "git+https://github.com/LiGoldragon/signal-nomos.git?rev=1af71a9d0625a6404f81cd6fe8b6393ac0c9040f#1af71a9d0625a6404f81cd6fe8b6393ac0c9040f"
+version = "0.5.0"
+source = "git+https://github.com/LiGoldragon/signal-nomos.git?rev=c8a6b63595e259c21cd0d58e3e7f49213991c774#c8a6b63595e259c21cd0d58e3e7f49213991c774"
 dependencies = [
  "content-identity 0.5.0",
  "core-nomos",
