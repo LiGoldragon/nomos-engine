@@ -103,8 +103,177 @@ struct NamedForgedWholeEthosVariant {
     payload: ForgedWholeEthosVariantPayload,
 }
 
+trait AssertTypeReferenceFieldsEqual {
+    fn assert_type_reference_fields_equal(&self, right: &Self);
+}
+
+impl AssertTypeReferenceFieldsEqual for WholeEthosTypeReference {
+    fn assert_type_reference_fields_equal(&self, right: &Self) {
+        match self {
+            WholeEthosTypeReference::Identity(left_identity) => {
+                let WholeEthosTypeReference::Identity(right_identity) = right else {
+                    panic!("type-reference kinds must match")
+                };
+                assert_eq!(
+                    left_identity, right_identity,
+                    "type-reference identities must match",
+                );
+            }
+            WholeEthosTypeReference::Application(left_application) => {
+                let WholeEthosTypeReference::Application(right_application) = right else {
+                    panic!("type-reference kinds must match")
+                };
+                assert_eq!(
+                    left_application.head(),
+                    right_application.head(),
+                    "type-application head identities must match",
+                );
+                left_application
+                    .payload()
+                    .assert_type_reference_fields_equal(right_application.payload());
+            }
+        }
+    }
+}
+
+macro_rules! assert_forged_payload_fields_equal {
+    ($left:expr, $right:expr) => {{
+        match $left {
+            ForgedWholeEthosVariantPayload::Unit => {
+                let ForgedWholeEthosVariantPayload::Unit = $right else {
+                    panic!("variant payload kinds must match")
+                };
+            }
+            ForgedWholeEthosVariantPayload::Tuple(left) => {
+                let ForgedWholeEthosVariantPayload::Tuple(right) = $right else {
+                    panic!("variant payload kinds must match")
+                };
+                assert_eq!(
+                    left.0.len(),
+                    right.0.len(),
+                    "tuple payload field counts must match",
+                );
+                for index in 0..left.0.len() {
+                    left.0[index].assert_type_reference_fields_equal(&right.0[index]);
+                }
+            }
+        }
+    }};
+}
+
+macro_rules! assert_forged_newtype_fields_equal {
+    ($positional:expr, $named:expr) => {{
+        assert_eq!($positional.0, $named.name, "newtype names must match");
+        assert_eq!(
+            $positional.1, $named.visibility,
+            "newtype visibility must match",
+        );
+        assert_eq!(
+            $positional.2, $named.attributes,
+            "newtype attributes must match",
+        );
+        assert_eq!(
+            $positional.3.visibility(),
+            $named.wrapped_field.visibility(),
+            "wrapped-field visibility must match",
+        );
+        assert_eq!(
+            $positional.3.reference(),
+            $named.wrapped_field.reference(),
+            "wrapped-field type reference must match",
+        );
+        $positional
+            .3
+            .reference()
+            .assert_type_reference_fields_equal($named.wrapped_field.reference());
+    }};
+}
+
+macro_rules! assert_forged_positional_variant_fields_equal {
+    ($left:expr, $right:expr) => {{
+        assert_eq!($left.0, $right.0, "variant names must match");
+        assert_eq!($left.1, $right.1, "variant attributes must match");
+        assert_forged_payload_fields_equal!(&$left.2, &$right.2);
+    }};
+}
+
+macro_rules! assert_forged_variant_fields_equal {
+    ($positional:expr, $named:expr) => {{
+        assert_eq!($positional.0, $named.name, "variant names must match");
+        assert_eq!(
+            $positional.1, $named.attributes,
+            "variant attributes must match",
+        );
+        assert_forged_payload_fields_equal!(&$positional.2, &$named.payload);
+    }};
+}
+
+macro_rules! assert_forged_enumeration_fields_equal {
+    ($positional:expr, $named:expr) => {{
+        assert_eq!($positional.0, $named.name, "enumeration names must match");
+        assert_eq!(
+            $positional.1, $named.visibility,
+            "enumeration visibility must match",
+        );
+        assert_eq!(
+            $positional.2, $named.attributes,
+            "enumeration attributes must match",
+        );
+        assert_eq!(
+            $positional.3.len(),
+            $named.variants.len(),
+            "enumeration variant counts must match",
+        );
+        for index in 0..$positional.3.len() {
+            assert_forged_positional_variant_fields_equal!(
+                &$positional.3[index],
+                &$named.variants[index]
+            );
+        }
+    }};
+}
+
+macro_rules! assert_forged_whole_fields_equal {
+    ($positional:expr, $named:expr) => {{
+        assert_eq!(
+            $positional.0.len(),
+            $named.items.len(),
+            "WholeEthos item counts must match",
+        );
+        for index in 0..$positional.0.len() {
+            match &$positional.0[index] {
+                ForgedWholeEthosItem::Newtype(positional_newtype) => {
+                    let NamedForgedWholeEthosItem::Newtype(named_newtype) = &$named.items[index]
+                    else {
+                        panic!("WholeEthos item kinds must match")
+                    };
+                    assert_forged_newtype_fields_equal!(positional_newtype, named_newtype);
+                }
+                ForgedWholeEthosItem::Enumeration(positional_enumeration) => {
+                    let NamedForgedWholeEthosItem::Enumeration(named_enumeration) =
+                        &$named.items[index]
+                    else {
+                        panic!("WholeEthos item kinds must match")
+                    };
+                    assert_forged_enumeration_fields_equal!(
+                        positional_enumeration,
+                        named_enumeration
+                    );
+                }
+            }
+        }
+    }};
+}
+
 macro_rules! assert_forged_archive_compatible {
-    ($positional_type:ty, $named_type:ty, $positional:expr, $named:expr) => {{
+    (
+        $positional_type:ty,
+        $named_type:ty,
+        $positional:expr,
+        $named:expr,
+        |$positional_from_named:ident, $named_source:ident| $positional_assertions:block,
+        |$named_from_positional:ident, $positional_source:ident| $named_assertions:block
+    ) => {{
         let positional = $positional;
         let named = $named;
         let positional_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&positional)
@@ -141,6 +310,16 @@ macro_rules! assert_forged_archive_compatible {
         let named_from_positional =
             rkyv::from_bytes::<$named_type, rkyv::rancor::Error>(&positional_bytes)
                 .expect("restore named forged carrier from positional bytes");
+        {
+            let $positional_from_named = &positional_from_named;
+            let $named_source = &named;
+            $positional_assertions
+        }
+        {
+            let $named_from_positional = &named_from_positional;
+            let $positional_source = &positional;
+            $named_assertions
+        }
         assert_eq!(
             rkyv::to_bytes::<rkyv::rancor::Error>(&positional_from_named)
                 .expect("reserialize positional carrier restored from named bytes")
@@ -235,7 +414,13 @@ fn named_fields_preserve_forged_whole_ethos_archives() {
         ForgedWholeEthosNewtype,
         NamedForgedWholeEthosNewtype,
         positional_newtype,
-        named_newtype.clone()
+        named_newtype.clone(),
+        |positional_from_named, named_source| {
+            assert_forged_newtype_fields_equal!(positional_from_named, named_source);
+        },
+        |named_from_positional, positional_source| {
+            assert_forged_newtype_fields_equal!(positional_source, named_from_positional);
+        }
     );
     let current_newtype =
         rkyv::from_bytes::<WholeEthosNewtype, rkyv::rancor::Error>(&named_newtype_bytes)
@@ -272,7 +457,13 @@ fn named_fields_preserve_forged_whole_ethos_archives() {
         ForgedWholeEthosVariant,
         NamedForgedWholeEthosVariant,
         positional_variant.clone(),
-        named_variant
+        named_variant,
+        |positional_from_named, named_source| {
+            assert_forged_variant_fields_equal!(positional_from_named, named_source);
+        },
+        |named_from_positional, positional_source| {
+            assert_forged_variant_fields_equal!(positional_source, named_from_positional);
+        }
     );
     let current_variant =
         rkyv::from_bytes::<WholeEthosVariant, rkyv::rancor::Error>(&named_variant_bytes)
@@ -307,8 +498,14 @@ fn named_fields_preserve_forged_whole_ethos_archives() {
     let named_enumeration_bytes = assert_forged_archive_compatible!(
         ForgedWholeEthosEnumeration,
         NamedForgedWholeEthosEnumeration,
-        positional_enumeration,
-        named_enumeration.clone()
+        positional_enumeration.clone(),
+        named_enumeration.clone(),
+        |positional_from_named, named_source| {
+            assert_forged_enumeration_fields_equal!(positional_from_named, named_source);
+        },
+        |named_from_positional, positional_source| {
+            assert_forged_enumeration_fields_equal!(positional_source, named_from_positional);
+        }
     );
     let current_enumeration =
         rkyv::from_bytes::<WholeEthosEnumeration, rkyv::rancor::Error>(&named_enumeration_bytes)
@@ -316,14 +513,33 @@ fn named_fields_preserve_forged_whole_ethos_archives() {
     assert_eq!(current_enumeration.name(), &enumeration_name);
     assert_eq!(current_enumeration.variants().len(), 2);
 
+    let positional_whole = ForgedWholeEthos(vec![
+        ForgedWholeEthosItem::Newtype(ForgedWholeEthosNewtype(
+            newtype_name,
+            WholeEthosVisibility::Public,
+            WholeEthosAttributes::empty(),
+            wrapped_field,
+        )),
+        ForgedWholeEthosItem::Enumeration(positional_enumeration),
+    ]);
     let named_whole = NamedForgedWholeEthos {
         items: vec![
             NamedForgedWholeEthosItem::Newtype(named_newtype),
             NamedForgedWholeEthosItem::Enumeration(named_enumeration),
         ],
     };
-    let named_whole_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&named_whole)
-        .expect("archive named forged WholeEthos envelope");
+    let named_whole_bytes = assert_forged_archive_compatible!(
+        ForgedWholeEthos,
+        NamedForgedWholeEthos,
+        positional_whole,
+        named_whole,
+        |positional_from_named, named_source| {
+            assert_forged_whole_fields_equal!(positional_from_named, named_source);
+        },
+        |named_from_positional, positional_source| {
+            assert_forged_whole_fields_equal!(positional_source, named_from_positional);
+        }
+    );
     let current_whole = WholeEthos::from_archive_bytes(&named_whole_bytes)
         .expect("named forged bytes restore directly through current WholeEthos");
     assert_eq!(
