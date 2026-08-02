@@ -132,8 +132,8 @@ dependencies = [
 
 [[package]]
 name = "core-ethos"
-version = "0.22.0"
-source = "git+https://github.com/LiGoldragon/core-ethos.git?rev=17143fb8a237868394f8a1894e329831bfc0d973#17143fb8a237868394f8a1894e329831bfc0d973"
+version = "0.23.0"
+source = "git+https://github.com/LiGoldragon/core-ethos.git?rev=7bb9c5a0a31851641998b26f14326515ca64a7e8#7bb9c5a0a31851641998b26f14326515ca64a7e8"
 dependencies = [
  "content-identity 0.3.0",
  "content-identity 0.4.0",
@@ -148,8 +148,8 @@ dependencies = [
 
 [[package]]
 name = "core-logos"
-version = "0.19.0"
-source = "git+https://github.com/LiGoldragon/core-logos.git?rev=9a61e2ac1bf8a8c1163794d695902115a05a4007#9a61e2ac1bf8a8c1163794d695902115a05a4007"
+version = "0.20.0"
+source = "git+https://github.com/LiGoldragon/core-logos.git?rev=1bb284325d3026a695130967215373fa266629d5#1bb284325d3026a695130967215373fa266629d5"
 dependencies = [
  "content-identity 0.3.0",
  "content-identity 0.4.0",
@@ -165,8 +165,8 @@ dependencies = [
 
 [[package]]
 name = "core-nomos"
-version = "0.29.0"
-source = "git+https://github.com/LiGoldragon/core-nomos.git?rev=4453dfd9b16e699b9050c9fb7cd28096d8bda7a5#4453dfd9b16e699b9050c9fb7cd28096d8bda7a5"
+version = "0.30.0"
+source = "git+https://github.com/LiGoldragon/core-nomos.git?rev=6470efc171a2acb652fba7d512f76c26f7a53d82#6470efc171a2acb652fba7d512f76c26f7a53d82"
 dependencies = [
  "content-identity 0.3.0",
  "content-identity 0.5.0",
@@ -347,7 +347,7 @@ dependencies = [
 
 [[package]]
 name = "nomos-engine"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "content-identity 0.5.0",
  "core-ethos",
@@ -526,8 +526,8 @@ dependencies = [
 
 [[package]]
 name = "rust-logos"
-version = "0.19.0"
-source = "git+https://github.com/LiGoldragon/rust-logos.git?rev=f46167cbb35d25d86ddbc197653c6560ded8e077#f46167cbb35d25d86ddbc197653c6560ded8e077"
+version = "0.20.0"
+source = "git+https://github.com/LiGoldragon/rust-logos.git?rev=aa75cf6afdd457bb256ceb955ca78cca54d0e484#aa75cf6afdd457bb256ceb955ca78cca54d0e484"
 dependencies = [
  "bs58",
  "core-logos",
@@ -636,8 +636,8 @@ dependencies = [
 
 [[package]]
 name = "signal-nomos"
-version = "0.5.0"
-source = "git+https://github.com/LiGoldragon/signal-nomos.git?rev=c8a6b63595e259c21cd0d58e3e7f49213991c774#c8a6b63595e259c21cd0d58e3e7f49213991c774"
+version = "0.6.0"
+source = "git+https://github.com/LiGoldragon/signal-nomos.git?rev=d5b102c339612e68e357a34792b016af3af5254f#d5b102c339612e68e357a34792b016af3af5254f"
 dependencies = [
  "content-identity 0.5.0",
  "core-nomos",

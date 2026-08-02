@@ -1,6 +1,6 @@
 [package]
 name = "nomos-engine"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.89"
 license = "MIT OR Apache-2.0"
@@ -8,13 +8,13 @@ repository = "https://github.com/LiGoldragon/nomos-engine"
 description = "Stateful native authored-Nomos transformation daemon"
 [dependencies]
 capsule-content-identity = { package = "content-identity", git = "https://github.com/LiGoldragon/content-identity.git", rev = "896b21e17f31b66d0802bff899b4b60acea9c0f1" }
-core-ethos = { git = "https://github.com/LiGoldragon/core-ethos.git", rev = "17143fb8a237868394f8a1894e329831bfc0d973" }
-core-logos = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "9a61e2ac1bf8a8c1163794d695902115a05a4007" }
-core-nomos = { git = "https://github.com/LiGoldragon/core-nomos.git", rev = "4453dfd9b16e699b9050c9fb7cd28096d8bda7a5" }
+core-ethos = { git = "https://github.com/LiGoldragon/core-ethos.git", rev = "7bb9c5a0a31851641998b26f14326515ca64a7e8" }
+core-logos = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "1bb284325d3026a695130967215373fa266629d5" }
+core-nomos = { git = "https://github.com/LiGoldragon/core-nomos.git", rev = "6470efc171a2acb652fba7d512f76c26f7a53d82" }
 protos = { git = "https://github.com/LiGoldragon/protos.git", rev = "c85cec6117bfd4c423d952fd54e0c0bb11562f89" }
 rkyv = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
 sema-engine = { git = "https://github.com/LiGoldragon/sema-engine.git", rev = "7bed5017a6f20ff2c109f693c2dedaaddf52e64d" }
-signal-nomos = { git = "https://github.com/LiGoldragon/signal-nomos.git", rev = "c8a6b63595e259c21cd0d58e3e7f49213991c774" }
+signal-nomos = { git = "https://github.com/LiGoldragon/signal-nomos.git", rev = "d5b102c339612e68e357a34792b016af3af5254f" }
 signal-sema-translator = { git = "https://github.com/LiGoldragon/signal-sema-translator.git", rev = "51c02c4a7b6f67d9dad095f11986085d7d65785b" }
 thiserror = "2"
 tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync"] }
