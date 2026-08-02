@@ -1,0 +1,648 @@
+//! Offline, socket-free Ethos-to-Rust batch generation.
+//!
+//! Callers supply every translator-issued identity and current spelling. The
+//! batch path never allocates an identity and never enters the stateful daemon.
+
+use std::collections::BTreeMap;
+use std::fmt::Write as _;
+
+use batch_core_ethos::{
+    EthosCodec, EthosCodecBuildError, EthosDecodeError, EthosGrammarError, EthosGrammarIdentities,
+    EthosGrammarIds, WholeEthosBody, WholeEthosBuiltinPriorError, WholeEthosBuiltinPriors,
+    WholeEthosFileKind, WholeEthosItem, WholeEthosOperatorApplication, WholeEthosTable,
+};
+use batch_core_logos::{WholeLogos, WholeLogosTypeAttributes};
+use batch_core_nomos::{
+    NexusStructuralTransformation, NexusTransformation, NexusTransformationError,
+    TypeDeclarationStructuralTransformation,
+};
+use name_table::{LocalEncodedId, Name};
+use rust_logos::{FixtureRustVocabulary, FixtureRustVocabularyIds, RustEncodedIdCodec, RustLogos};
+use serde::Deserialize;
+use signal_sema_translator::{VocabularyEncodedId, VocabularyRoot};
+use structural_codec::{
+    DeclarationAssignment, DecodeNameBindings, EncodedNameResolver, NameOccurrence,
+    ResolvedReference,
+};
+
+/// Execute one complete offline batch generation request.
+pub trait OfflineBatchGeneration {
+    /// Decode the source, project every currently supported declaration, emit
+    /// Rust, and return every deliberately deferred construct alongside it.
+    fn generate(&self, source: &str) -> Result<BatchGenerationOutcome, BatchGenerationError>;
+}
+
+/// Stable human-readable projection of a typed batch receipt.
+pub trait BatchOutcomeReporting {
+    /// Render the source kind, artifact breadth, and every deferred construct.
+    fn report(&self) -> String;
+}
+
+/// Validate caller-authored identity configuration into an offline generator.
+pub trait OfflineBatchConfiguration {
+    /// Seat the Ethos and Rust structural vocabularies without allocating names.
+    fn prepare(self) -> Result<PreparedBatchGenerator, BatchConfigurationError>;
+}
+
+/// A validated socket-free generator and its caller-supplied name view.
+pub struct PreparedBatchGenerator {
+    ethos: EthosCodec,
+    rust: RustLogos,
+    names: BatchNameBindings,
+    transformation: NexusTransformation,
+}
+
+impl OfflineBatchGeneration for PreparedBatchGenerator {
+    fn generate(&self, source: &str) -> Result<BatchGenerationOutcome, BatchGenerationError> {
+        let decoded = self.ethos.decode(source, &self.names)?;
+        let projection = self.transformation.project(decoded.ethos())?;
+        let rust = self.rust.emit(&projection.logos, &self.names)?;
+        Ok(BatchGenerationOutcome {
+            kind: decoded.ethos().header().kind(),
+            version: decoded.ethos().header().version(),
+            logos: projection.logos,
+            rust,
+            deferred: projection.deferred,
+        })
+    }
+}
+
+trait CurrentBatchProjection {
+    fn project(
+        &self,
+        ethos: &batch_core_ethos::WholeEthos,
+    ) -> Result<BatchProjection, NexusTransformationError>;
+}
+
+impl CurrentBatchProjection for NexusTransformation {
+    fn project(
+        &self,
+        ethos: &batch_core_ethos::WholeEthos,
+    ) -> Result<BatchProjection, NexusTransformationError> {
+        match ethos.body() {
+            WholeEthosBody::Nexus(_) => Ok(BatchProjection {
+                logos: self.lower(ethos)?,
+                deferred: Vec::new(),
+            }),
+            WholeEthosBody::Interface(body) => {
+                let mut declarations = Vec::with_capacity(
+                    body.inputs().len()
+                        + body.outputs().len()
+                        + body.refusals().len()
+                        + body.types().len(),
+                );
+                let mut deferred = Vec::new();
+                for input in body.inputs() {
+                    declarations.push(WholeEthosItem::Newtype(input.clone()));
+                    deferred.push(DeferredBatchConstruct::InterfaceInputMembership {
+                        declaration: input.name().clone(),
+                    });
+                }
+                for output in body.outputs() {
+                    declarations.push(WholeEthosItem::Newtype(output.clone()));
+                    deferred.push(DeferredBatchConstruct::InterfaceOutputMembership {
+                        declaration: output.name().clone(),
+                    });
+                }
+                for refusal in body.refusals() {
+                    declarations.push(WholeEthosItem::Struct(refusal.clone()));
+                    deferred.push(DeferredBatchConstruct::InterfaceRefusalSemantics {
+                        declaration: refusal.name().clone(),
+                    });
+                }
+                for item in body.types() {
+                    match item {
+                        WholeEthosItem::OperatorApplication(application) => {
+                            deferred.push(DeferredBatchConstruct::InterfaceOperatorApplication {
+                                application: application.clone(),
+                            });
+                        }
+                        ordinary => declarations.push(ordinary.clone()),
+                    }
+                }
+                Ok(BatchProjection {
+                    logos: self
+                        .lower_type_declarations(&declarations, WholeLogosTypeAttributes::Wire)?,
+                    deferred,
+                })
+            }
+            WholeEthosBody::Sema(body) => Ok(BatchProjection {
+                logos: self.lower_type_declarations(
+                    body.record_types(),
+                    WholeLogosTypeAttributes::Plain,
+                )?,
+                deferred: body
+                    .tables()
+                    .iter()
+                    .cloned()
+                    .map(|table| DeferredBatchConstruct::SemaTable { table })
+                    .collect(),
+            }),
+        }
+    }
+}
+
+struct BatchProjection {
+    logos: WholeLogos,
+    deferred: Vec<DeferredBatchConstruct>,
+}
+
+/// Successful partial or complete generation receipt.
+pub struct BatchGenerationOutcome {
+    kind: WholeEthosFileKind,
+    version: u64,
+    logos: WholeLogos,
+    rust: String,
+    deferred: Vec<DeferredBatchConstruct>,
+}
+
+// Trait exception — too trivial: read-only receipt accessors.
+impl BatchGenerationOutcome {
+    /// Decoded file kind.
+    pub const fn kind(&self) -> WholeEthosFileKind {
+        self.kind
+    }
+
+    /// Decoded header version.
+    pub const fn version(&self) -> u64 {
+        self.version
+    }
+
+    /// Canonical projected Logos content.
+    pub const fn logos(&self) -> &WholeLogos {
+        &self.logos
+    }
+
+    /// Emitted Rust artifact. Its presence does not imply deferred semantics.
+    pub fn rust(&self) -> &str {
+        &self.rust
+    }
+
+    /// Constructs intentionally outside the current projection breadth.
+    pub fn deferred(&self) -> &[DeferredBatchConstruct] {
+        &self.deferred
+    }
+}
+
+impl BatchOutcomeReporting for BatchGenerationOutcome {
+    fn report(&self) -> String {
+        let mut report = String::new();
+        writeln!(report, "kind {}", self.kind.spelling()).expect("String writes cannot fail");
+        writeln!(report, "version {}", self.version).expect("String writes cannot fail");
+        writeln!(report, "emitted-items {}", self.logos.items().len())
+            .expect("String writes cannot fail");
+        writeln!(report, "deferred {}", self.deferred.len()).expect("String writes cannot fail");
+        for deferred in &self.deferred {
+            deferred.write_report(&mut report);
+        }
+        report
+    }
+}
+
+/// One source construct whose semantics are not claimed by Slice 3.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DeferredBatchConstruct {
+    /// The declaration was emitted, but Input membership belongs to Slice 5.
+    InterfaceInputMembership { declaration: VocabularyEncodedId },
+    /// The declaration was emitted, but Output membership belongs to Slice 5.
+    InterfaceOutputMembership { declaration: VocabularyEncodedId },
+    /// The declaration was emitted, but Refusal behavior belongs to Slice 5.
+    InterfaceRefusalSemantics { declaration: VocabularyEncodedId },
+    /// The application remains fully typed in WholeEthos; Stream semantics are Slice 6.
+    InterfaceOperatorApplication {
+        application: WholeEthosOperatorApplication,
+    },
+    /// Record declarations were emitted; table/storage machinery belongs to Slice 7.
+    SemaTable { table: WholeEthosTable },
+}
+
+impl DeferredBatchConstruct {
+    fn write_report(&self, report: &mut String) {
+        match self {
+            Self::InterfaceInputMembership { declaration } => {
+                writeln!(
+                    report,
+                    "deferred interface-input-membership {}",
+                    RustEncodedIdCodec::encode(declaration)
+                )
+                .expect("String writes cannot fail");
+            }
+            Self::InterfaceOutputMembership { declaration } => {
+                writeln!(
+                    report,
+                    "deferred interface-output-membership {}",
+                    RustEncodedIdCodec::encode(declaration)
+                )
+                .expect("String writes cannot fail");
+            }
+            Self::InterfaceRefusalSemantics { declaration } => {
+                writeln!(
+                    report,
+                    "deferred interface-refusal-semantics {}",
+                    RustEncodedIdCodec::encode(declaration)
+                )
+                .expect("String writes cannot fail");
+            }
+            Self::InterfaceOperatorApplication { application } => {
+                writeln!(
+                    report,
+                    "deferred interface-operator-application {} {} fields={}",
+                    RustEncodedIdCodec::encode(application.operator()),
+                    RustEncodedIdCodec::encode(application.name()),
+                    application.fields().len(),
+                )
+                .expect("String writes cannot fail");
+            }
+            Self::SemaTable { table } => {
+                writeln!(
+                    report,
+                    "deferred sema-table {}",
+                    RustEncodedIdCodec::encode(table.name())
+                )
+                .expect("String writes cannot fail");
+            }
+        }
+    }
+}
+
+/// Typed failure before any Rust artifact is returned.
+#[derive(Debug, thiserror::Error)]
+pub enum BatchGenerationError {
+    /// Header, body, name, or structural source decoding failed.
+    #[error("Ethos batch decode failed: {0}")]
+    Decode(#[from] EthosDecodeError),
+    /// Current typed Nomos projection refused the decoded document.
+    #[error("Nomos batch projection failed: {0}")]
+    Projection(#[from] NexusTransformationError),
+    /// Rust projection failed without returning partial source.
+    #[error("Rust batch emission failed: {0}")]
+    Rust(#[from] rust_logos::Error),
+}
+
+/// JSON configuration for the CLI and build-script entry points.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BatchConfiguration {
+    grammar: EthosGrammarConfiguration,
+    rust_grammar: RustGrammarConfiguration,
+    priors: PriorConfiguration,
+    names: Vec<NameConfiguration>,
+}
+
+// Trait exception — too trivial: serde parsing convenience only; validation
+// and construction live under OfflineBatchConfiguration.
+impl BatchConfiguration {
+    /// Parse one caller-authored JSON configuration without seating it.
+    pub fn from_json(source: &str) -> Result<Self, BatchConfigurationError> {
+        Ok(serde_json::from_str(source)?)
+    }
+}
+
+impl OfflineBatchConfiguration for BatchConfiguration {
+    fn prepare(self) -> Result<PreparedBatchGenerator, BatchConfigurationError> {
+        let mut names = BatchNameBindings::try_new(self.names)?;
+        let grammar = EthosGrammarIds::new(self.grammar.into_identities()?)?;
+        let integer = names.require_universal(&self.priors.integer)?;
+        let vector = names.require_universal(&self.priors.vector)?;
+        let mut priors = WholeEthosBuiltinPriors::new(integer, vector)?;
+        for identity in names.universal_identities() {
+            priors = priors.with_identity(identity)?;
+        }
+        for spelling in self.priors.application_heads {
+            priors = priors.with_application_head(names.require_universal(&spelling)?)?;
+        }
+        for spelling in self.priors.object_application_heads {
+            priors = priors.with_object_application_head(names.require_universal(&spelling)?)?;
+        }
+        let rust_ids = self.rust_grammar.seat(&mut names)?;
+        let rust_vocabulary = FixtureRustVocabulary::seal(rust_ids, &names)?;
+        Ok(PreparedBatchGenerator {
+            ethos: EthosCodec::build(grammar, priors)?,
+            rust: RustLogos::new(rust_vocabulary),
+            names,
+            transformation: NexusTransformation::new(),
+        })
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NameConfiguration {
+    spelling: String,
+    root: ConfiguredRoot,
+    chain: Vec<u16>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum ConfiguredRoot {
+    Universal,
+    Rust,
+}
+
+impl From<ConfiguredRoot> for VocabularyRoot {
+    fn from(root: ConfiguredRoot) -> Self {
+        match root {
+            ConfiguredRoot::Universal => Self::Universal,
+            ConfiguredRoot::Rust => Self::Rust,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PriorConfiguration {
+    integer: String,
+    vector: String,
+    #[serde(default)]
+    application_heads: Vec<String>,
+    #[serde(default)]
+    object_application_heads: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EthosGrammarConfiguration {
+    interface_document: Vec<u16>,
+    nexus_document: Vec<u16>,
+    sema_document: Vec<u16>,
+    header: Vec<u16>,
+    imports: Vec<u16>,
+    import_entry: Vec<u16>,
+    interface_body: Vec<u16>,
+    nexus_body: Vec<u16>,
+    sema_body: Vec<u16>,
+    newtype_list: Vec<u16>,
+    struct_list: Vec<u16>,
+    item_list: Vec<u16>,
+    trait_list: Vec<u16>,
+    table_list: Vec<u16>,
+    newtype_declaration: Vec<u16>,
+    struct_declaration: Vec<u16>,
+    item: Vec<u16>,
+    variant: Vec<u16>,
+    type_reference: Vec<u16>,
+    operator_payload: Vec<u16>,
+    trait_declaration: Vec<u16>,
+    method: Vec<u16>,
+    table: Vec<u16>,
+}
+
+impl EthosGrammarConfiguration {
+    fn into_identities(self) -> Result<EthosGrammarIdentities, BatchConfigurationError> {
+        Ok(EthosGrammarIdentities {
+            interface_document: universal_id(
+                "grammar.interface_document",
+                self.interface_document,
+            )?,
+            nexus_document: universal_id("grammar.nexus_document", self.nexus_document)?,
+            sema_document: universal_id("grammar.sema_document", self.sema_document)?,
+            header: universal_id("grammar.header", self.header)?,
+            imports: universal_id("grammar.imports", self.imports)?,
+            import_entry: universal_id("grammar.import_entry", self.import_entry)?,
+            interface_body: universal_id("grammar.interface_body", self.interface_body)?,
+            nexus_body: universal_id("grammar.nexus_body", self.nexus_body)?,
+            sema_body: universal_id("grammar.sema_body", self.sema_body)?,
+            newtype_list: universal_id("grammar.newtype_list", self.newtype_list)?,
+            struct_list: universal_id("grammar.struct_list", self.struct_list)?,
+            item_list: universal_id("grammar.item_list", self.item_list)?,
+            trait_list: universal_id("grammar.trait_list", self.trait_list)?,
+            table_list: universal_id("grammar.table_list", self.table_list)?,
+            newtype_declaration: universal_id(
+                "grammar.newtype_declaration",
+                self.newtype_declaration,
+            )?,
+            struct_declaration: universal_id(
+                "grammar.struct_declaration",
+                self.struct_declaration,
+            )?,
+            item: universal_id("grammar.item", self.item)?,
+            variant: universal_id("grammar.variant", self.variant)?,
+            type_reference: universal_id("grammar.type_reference", self.type_reference)?,
+            operator_payload: universal_id("grammar.operator_payload", self.operator_payload)?,
+            trait_declaration: universal_id("grammar.trait_declaration", self.trait_declaration)?,
+            method: universal_id("grammar.method", self.method)?,
+            table: universal_id("grammar.table", self.table)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RustGrammarConfiguration {
+    newtype_item: Vec<u16>,
+    enumeration_item: Vec<u16>,
+    variant: Vec<u16>,
+    tuple_field: Vec<u16>,
+    type_reference: Vec<u16>,
+    struct_keyword: Vec<u16>,
+    enum_keyword: Vec<u16>,
+    public_keyword: Vec<u16>,
+    comma: Vec<u16>,
+    semicolon: Vec<u16>,
+}
+
+impl RustGrammarConfiguration {
+    fn seat(
+        self,
+        names: &mut BatchNameBindings,
+    ) -> Result<FixtureRustVocabularyIds, BatchConfigurationError> {
+        let newtype_item = names.insert_rust(
+            "rust_grammar.newtype_item",
+            self.newtype_item,
+            "NewtypeItemRecord",
+        )?;
+        let enumeration_item = names.insert_rust(
+            "rust_grammar.enumeration_item",
+            self.enumeration_item,
+            "EnumerationItemRecord",
+        )?;
+        let variant = names.insert_rust("rust_grammar.variant", self.variant, "VariantRecord")?;
+        let tuple_field = names.insert_rust(
+            "rust_grammar.tuple_field",
+            self.tuple_field,
+            "TupleFieldRecord",
+        )?;
+        let type_reference = names.insert_rust(
+            "rust_grammar.type_reference",
+            self.type_reference,
+            "TypeReferenceRecord",
+        )?;
+        let struct_keyword =
+            names.insert_rust("rust_grammar.struct_keyword", self.struct_keyword, "struct")?;
+        let enum_keyword =
+            names.insert_rust("rust_grammar.enum_keyword", self.enum_keyword, "enum")?;
+        let public_keyword =
+            names.insert_rust("rust_grammar.public_keyword", self.public_keyword, "pub")?;
+        let comma = names.insert_rust("rust_grammar.comma", self.comma, ",")?;
+        let semicolon = names.insert_rust("rust_grammar.semicolon", self.semicolon, ";")?;
+        Ok(FixtureRustVocabularyIds::new(
+            newtype_item,
+            enumeration_item,
+            variant,
+            tuple_field,
+            type_reference,
+            struct_keyword,
+            enum_keyword,
+            public_keyword,
+            comma,
+            semicolon,
+        ))
+    }
+}
+
+struct BatchNameBindings {
+    by_spelling: BTreeMap<String, VocabularyEncodedId>,
+    by_identity: BTreeMap<VocabularyEncodedId, Name>,
+}
+
+impl BatchNameBindings {
+    fn try_new(entries: Vec<NameConfiguration>) -> Result<Self, BatchConfigurationError> {
+        let mut bindings = Self {
+            by_spelling: BTreeMap::new(),
+            by_identity: BTreeMap::new(),
+        };
+        for entry in entries {
+            let identity = configured_id("names", entry.root.into(), entry.chain)?;
+            if bindings.by_spelling.contains_key(&entry.spelling) {
+                return Err(BatchConfigurationError::DuplicateSpelling {
+                    spelling: entry.spelling,
+                });
+            }
+            if let Some(existing) = bindings.by_identity.get(&identity) {
+                return Err(BatchConfigurationError::DuplicateIdentity {
+                    first: existing.as_str().to_owned(),
+                    second: entry.spelling,
+                });
+            }
+            bindings
+                .by_identity
+                .insert(identity.clone(), Name::new(&entry.spelling));
+            bindings.by_spelling.insert(entry.spelling, identity);
+        }
+        Ok(bindings)
+    }
+
+    fn require_universal(
+        &self,
+        spelling: &str,
+    ) -> Result<VocabularyEncodedId, BatchConfigurationError> {
+        let identity =
+            self.by_spelling
+                .get(spelling)
+                .ok_or_else(|| BatchConfigurationError::MissingName {
+                    spelling: spelling.to_owned(),
+                })?;
+        if identity.root_variant() != &VocabularyRoot::Universal {
+            return Err(BatchConfigurationError::ExpectedUniversal {
+                spelling: spelling.to_owned(),
+            });
+        }
+        Ok(identity.clone())
+    }
+
+    fn universal_identities(&self) -> Vec<VocabularyEncodedId> {
+        self.by_identity
+            .keys()
+            .filter(|identity| identity.root_variant() == &VocabularyRoot::Universal)
+            .cloned()
+            .collect()
+    }
+
+    fn insert_rust(
+        &mut self,
+        position: &'static str,
+        chain: Vec<u16>,
+        spelling: &'static str,
+    ) -> Result<VocabularyEncodedId, BatchConfigurationError> {
+        let identity = configured_id(position, VocabularyRoot::Rust, chain)?;
+        if let Some(existing) = self.by_identity.get(&identity) {
+            return Err(BatchConfigurationError::DuplicateIdentity {
+                first: existing.as_str().to_owned(),
+                second: spelling.to_owned(),
+            });
+        }
+        self.by_identity
+            .insert(identity.clone(), Name::new(spelling));
+        Ok(identity)
+    }
+}
+
+impl EncodedNameResolver<VocabularyRoot> for BatchNameBindings {
+    fn resolve(&self, encoded_id: &VocabularyEncodedId) -> Option<&Name> {
+        self.by_identity.get(encoded_id)
+    }
+}
+
+impl DecodeNameBindings<VocabularyRoot> for BatchNameBindings {
+    fn declaration_assignment(
+        &self,
+        occurrence: NameOccurrence<'_>,
+    ) -> Option<DeclarationAssignment<VocabularyRoot>> {
+        self.by_spelling
+            .get(occurrence.spelling())
+            .cloned()
+            .map(DeclarationAssignment::new)
+    }
+
+    fn reference_resolution(
+        &self,
+        occurrence: NameOccurrence<'_>,
+    ) -> Option<ResolvedReference<VocabularyRoot>> {
+        self.by_spelling
+            .get(occurrence.spelling())
+            .cloned()
+            .map(ResolvedReference::new)
+    }
+}
+
+fn universal_id(
+    position: &'static str,
+    chain: Vec<u16>,
+) -> Result<VocabularyEncodedId, BatchConfigurationError> {
+    configured_id(position, VocabularyRoot::Universal, chain)
+}
+
+fn configured_id(
+    position: &'static str,
+    root: VocabularyRoot,
+    chain: Vec<u16>,
+) -> Result<VocabularyEncodedId, BatchConfigurationError> {
+    VocabularyEncodedId::new(root, chain.into_iter().map(LocalEncodedId::new).collect())
+        .map_err(|_| BatchConfigurationError::EmptyIdentity { position })
+}
+
+/// Typed refusal while loading caller-supplied batch configuration.
+#[derive(Debug, thiserror::Error)]
+pub enum BatchConfigurationError {
+    /// JSON syntax or shape is invalid.
+    #[error("batch configuration JSON is invalid: {0}")]
+    Json(#[from] serde_json::Error),
+    /// A configured identity chain is empty.
+    #[error("batch configuration identity {position} has an empty chain")]
+    EmptyIdentity { position: &'static str },
+    /// One source spelling was configured more than once.
+    #[error("batch configuration repeats spelling {spelling:?}")]
+    DuplicateSpelling { spelling: String },
+    /// One complete identity was assigned to two spellings.
+    #[error("batch configuration identity is assigned to both {first:?} and {second:?}")]
+    DuplicateIdentity { first: String, second: String },
+    /// A prior names a spelling absent from the supplied identity view.
+    #[error("batch configuration has no identity for required name {spelling:?}")]
+    MissingName { spelling: String },
+    /// An Ethos prior selected a Rust-root name.
+    #[error("batch configuration prior {spelling:?} must be Universal")]
+    ExpectedUniversal { spelling: String },
+    /// Ethos grammar identity validation failed.
+    #[error(transparent)]
+    EthosGrammar(#[from] EthosGrammarError),
+    /// Builtin-prior validation failed.
+    #[error(transparent)]
+    Prior(#[from] WholeEthosBuiltinPriorError),
+    /// Ethos structural table construction failed.
+    #[error(transparent)]
+    EthosCodec(#[from] EthosCodecBuildError),
+    /// Rust structural vocabulary construction failed.
+    #[error("Rust batch vocabulary failed: {0}")]
+    Rust(#[from] rust_logos::Error),
+}

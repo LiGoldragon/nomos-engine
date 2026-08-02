@@ -5,6 +5,7 @@
 //! storage socket, legacy package evaluator, fixture, or output-slot write is
 //! part of this production surface.
 
+pub mod batch;
 mod name_tree;
 mod store;
 

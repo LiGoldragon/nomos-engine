@@ -1,6 +1,6 @@
 [package]
 name = "nomos-engine"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 rust-version = "1.89"
 license = "MIT OR Apache-2.0"
@@ -8,19 +8,25 @@ repository = "https://github.com/LiGoldragon/nomos-engine"
 description = "Stateful native authored-Nomos transformation daemon"
 [dependencies]
 capsule-content-identity = { package = "content-identity", git = "https://github.com/LiGoldragon/content-identity.git", rev = "896b21e17f31b66d0802bff899b4b60acea9c0f1" }
+batch-core-ethos = { package = "core-ethos", git = "https://github.com/LiGoldragon/core-ethos.git", rev = "83feebbd34b66d493a0a3c7ffea68dab1dd7873c" }
+batch-core-logos = { package = "core-logos", git = "https://github.com/LiGoldragon/core-logos.git", rev = "bd5155f51ee5301b78cd8b3c070a98e2267e7477" }
+batch-core-nomos = { package = "core-nomos", git = "https://github.com/LiGoldragon/core-nomos.git", rev = "f1f6ca55fbc69afec135b385ed758725f4c2696a" }
 core-ethos = { git = "https://github.com/LiGoldragon/core-ethos.git", rev = "7bb9c5a0a31851641998b26f14326515ca64a7e8" }
 core-logos = { git = "https://github.com/LiGoldragon/core-logos.git", rev = "1bb284325d3026a695130967215373fa266629d5" }
 core-nomos = { git = "https://github.com/LiGoldragon/core-nomos.git", rev = "6470efc171a2acb652fba7d512f76c26f7a53d82" }
+name-table = { git = "https://github.com/LiGoldragon/name-table.git", rev = "50cb4bb53ae2dc4f2516f6912be328ef98ae49f8" }
 protos = { git = "https://github.com/LiGoldragon/protos.git", rev = "c85cec6117bfd4c423d952fd54e0c0bb11562f89" }
 rkyv = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
+rust-logos = { git = "https://github.com/LiGoldragon/rust-logos.git", rev = "14491e0cc2e34799b771573f1eeeaaf44a616405" }
 sema-engine = { git = "https://github.com/LiGoldragon/sema-engine.git", rev = "7bed5017a6f20ff2c109f693c2dedaaddf52e64d" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 signal-nomos = { git = "https://github.com/LiGoldragon/signal-nomos.git", rev = "d5b102c339612e68e357a34792b016af3af5254f" }
 signal-sema-translator = { git = "https://github.com/LiGoldragon/signal-sema-translator.git", rev = "51c02c4a7b6f67d9dad095f11986085d7d65785b" }
+structural-codec = { git = "https://github.com/LiGoldragon/structural-codec.git", rev = "f47fac132722916912b7071556f69cbbf4026f7f" }
 thiserror = "2"
 tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync"] }
 [dev-dependencies]
-name-table = { git = "https://github.com/LiGoldragon/name-table.git", rev = "50cb4bb53ae2dc4f2516f6912be328ef98ae49f8" }
-structural-codec = { git = "https://github.com/LiGoldragon/structural-codec.git", rev = "f47fac132722916912b7071556f69cbbf4026f7f" }
 tempfile = "3"
 [lints.rust]
 unsafe_code = "forbid"
