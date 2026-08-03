@@ -5,14 +5,14 @@ use nomos_engine::batch::{
 };
 use serde_json::{Value, json};
 
-const INTERFACE: &str = "Interface.1\n[]\n{\n  [Input.Text]\n  [Output.Text]\n  [Refusal.{Reason Text}]\n  [Text.Integer Stream.Feed.{Input Output Refusal}]\n}\n";
+const INTERFACE: &str = "Interface.1\n[]\n{\n  [Command.Text]\n  [Event.Text]\n  [Rejected.{Reason Text}]\n  [Text.Integer Stream.Feed.{Command Event Rejected}]\n}\n";
 const NEXUS: &str = "Nexus.1\n[]\n{\n  [Decision.[Accepted Rejected.Reason]]\n  []\n}\n";
 const SEMA: &str = "Sema.1\n[]\n{\n  [Stored.{Integer}]\n  [records.{Stored Integer}]\n}\n";
 
 fn generator() -> PreparedBatchGenerator {
     let source_names = [
-        "Integer", "Vector", "Input", "Text", "Output", "Refusal", "Reason", "Stream", "Feed",
-        "Decision", "Accepted", "Rejected", "Stored", "records",
+        "Integer", "Vector", "Input", "Output", "Refusal", "Command", "Text", "Event", "Rejected",
+        "Reason", "Stream", "Feed", "Decision", "Accepted", "Stored", "records",
     ];
     let names: Vec<Value> = source_names
         .into_iter()
@@ -35,6 +35,11 @@ fn generator() -> PreparedBatchGenerator {
                 "vector": "Vector",
                 "application_heads": ["Vector"],
                 "object_application_heads": ["Stream"],
+            },
+            "interface_roles": {
+                "input": "Input",
+                "output": "Output",
+                "refusal": "Refusal",
             },
             "names": names,
         })
@@ -101,25 +106,16 @@ fn all_current_file_kinds_return_artifacts_with_explicit_deferred_receipts() {
         .generate(INTERFACE)
         .expect("Interface declarations should generate");
     assert_eq!(interface.kind(), WholeEthosFileKind::Interface);
-    assert_eq!(interface.deferred().len(), 4);
+    assert_eq!(interface.deferred().len(), 1);
     assert!(matches!(
         interface.deferred()[0],
-        DeferredBatchConstruct::InterfaceInputMembership { .. }
-    ));
-    assert!(matches!(
-        interface.deferred()[1],
-        DeferredBatchConstruct::InterfaceOutputMembership { .. }
-    ));
-    assert!(matches!(
-        interface.deferred()[2],
-        DeferredBatchConstruct::InterfaceRefusalSemantics { .. }
-    ));
-    assert!(matches!(
-        interface.deferred()[3],
         DeferredBatchConstruct::InterfaceOperatorApplication { .. }
     ));
     assert!(interface.rust().contains("#[derive(rkyv::Archive"));
-    assert!(interface.report().contains("deferred 4"));
+    assert!(interface.rust().contains("impl std::fmt::Display"));
+    assert!(interface.rust().contains("impl std::error::Error"));
+    assert!(!interface.rust().contains("impl From<"));
+    assert!(interface.report().contains("deferred 1"));
 
     let sema = generator
         .generate(SEMA)

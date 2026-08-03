@@ -9,15 +9,18 @@ use std::fmt::Write as _;
 use batch_core_ethos::{
     EthosCodec, EthosCodecBuildError, EthosDecodeError, EthosGrammarError, EthosGrammarIdentities,
     EthosGrammarIds, WholeEthosBody, WholeEthosBuiltinPriorError, WholeEthosBuiltinPriors,
-    WholeEthosFileKind, WholeEthosItem, WholeEthosOperatorApplication, WholeEthosTable,
+    WholeEthosFileKind, WholeEthosOperatorApplication, WholeEthosTable,
 };
 use batch_core_logos::{WholeLogos, WholeLogosTypeAttributes};
 use batch_core_nomos::{
-    NexusStructuralTransformation, NexusTransformation, NexusTransformationError,
-    TypeDeclarationStructuralTransformation,
+    InterfaceRoleIdentities, InterfaceStructuralTransformation, NexusStructuralTransformation,
+    NexusTransformation, NexusTransformationError, TypeDeclarationStructuralTransformation,
 };
 use name_table::{LocalEncodedId, Name};
-use rust_logos::{FixtureRustVocabulary, FixtureRustVocabularyIds, RustEncodedIdCodec, RustLogos};
+use rust_logos::{
+    FixtureRustVocabulary, FixtureRustVocabularyIds, InterfaceRustEmission, InterfaceRustRoleIds,
+    RustEncodedIdCodec, RustLogos,
+};
 use serde::Deserialize;
 use signal_sema_translator::{VocabularyEncodedId, VocabularyRoot};
 use structural_codec::{
@@ -50,15 +53,25 @@ pub struct PreparedBatchGenerator {
     rust: RustLogos,
     names: BatchNameBindings,
     transformation: NexusTransformation,
+    interface_roles: InterfaceRoleIdentities,
+    interface_rust_roles: InterfaceRustRoleIds,
 }
 
 impl OfflineBatchGeneration for PreparedBatchGenerator {
     fn generate(&self, source: &str) -> Result<BatchGenerationOutcome, BatchGenerationError> {
         let decoded = self.ethos.decode(source, &self.names)?;
-        let projection = self.transformation.project(decoded.ethos())?;
-        let rust = self.rust.emit(&projection.logos, &self.names)?;
+        let projection = self
+            .transformation
+            .project(decoded.ethos(), &self.interface_roles)?;
+        let kind = decoded.ethos().header().kind();
+        let rust = if kind == WholeEthosFileKind::Interface {
+            self.rust
+                .emit_interface(&projection.logos, &self.names, &self.interface_rust_roles)?
+        } else {
+            self.rust.emit(&projection.logos, &self.names)?
+        };
         Ok(BatchGenerationOutcome {
-            kind: decoded.ethos().header().kind(),
+            kind,
             version: decoded.ethos().header().version(),
             logos: projection.logos,
             rust,
@@ -71,6 +84,7 @@ trait CurrentBatchProjection {
     fn project(
         &self,
         ethos: &batch_core_ethos::WholeEthos,
+        interface_roles: &InterfaceRoleIdentities,
     ) -> Result<BatchProjection, NexusTransformationError>;
 }
 
@@ -78,52 +92,27 @@ impl CurrentBatchProjection for NexusTransformation {
     fn project(
         &self,
         ethos: &batch_core_ethos::WholeEthos,
+        interface_roles: &InterfaceRoleIdentities,
     ) -> Result<BatchProjection, NexusTransformationError> {
         match ethos.body() {
             WholeEthosBody::Nexus(_) => Ok(BatchProjection {
                 logos: self.lower(ethos)?,
                 deferred: Vec::new(),
             }),
-            WholeEthosBody::Interface(body) => {
-                let mut declarations = Vec::with_capacity(
-                    body.inputs().len()
-                        + body.outputs().len()
-                        + body.refusals().len()
-                        + body.types().len(),
-                );
-                let mut deferred = Vec::new();
-                for input in body.inputs() {
-                    declarations.push(WholeEthosItem::Newtype(input.clone()));
-                    deferred.push(DeferredBatchConstruct::InterfaceInputMembership {
-                        declaration: input.name().clone(),
-                    });
-                }
-                for output in body.outputs() {
-                    declarations.push(WholeEthosItem::Newtype(output.clone()));
-                    deferred.push(DeferredBatchConstruct::InterfaceOutputMembership {
-                        declaration: output.name().clone(),
-                    });
-                }
-                for refusal in body.refusals() {
-                    declarations.push(WholeEthosItem::Struct(refusal.clone()));
-                    deferred.push(DeferredBatchConstruct::InterfaceRefusalSemantics {
-                        declaration: refusal.name().clone(),
-                    });
-                }
-                for item in body.types() {
-                    match item {
-                        WholeEthosItem::OperatorApplication(application) => {
-                            deferred.push(DeferredBatchConstruct::InterfaceOperatorApplication {
-                                application: application.clone(),
-                            });
-                        }
-                        ordinary => declarations.push(ordinary.clone()),
-                    }
-                }
+            WholeEthosBody::Interface(_) => {
+                let outcome = self.lower_interface(ethos, interface_roles)?;
                 Ok(BatchProjection {
-                    logos: self
-                        .lower_type_declarations(&declarations, WholeLogosTypeAttributes::Wire)?,
-                    deferred,
+                    logos: outcome.logos().clone(),
+                    deferred: outcome
+                        .deferred_operator_applications()
+                        .iter()
+                        .cloned()
+                        .map(
+                            |application| DeferredBatchConstruct::InterfaceOperatorApplication {
+                                application,
+                            },
+                        )
+                        .collect(),
                 })
             }
             WholeEthosBody::Sema(body) => Ok(BatchProjection {
@@ -199,14 +188,14 @@ impl BatchOutcomeReporting for BatchGenerationOutcome {
     }
 }
 
-/// One source construct whose semantics are not claimed by Slice 3.
+/// One source construct whose semantics are not claimed by the current batch path.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DeferredBatchConstruct {
-    /// The declaration was emitted, but Input membership belongs to Slice 5.
+    /// Legacy Slice 3 receipt variant; current Interface generation emits membership.
     InterfaceInputMembership { declaration: VocabularyEncodedId },
-    /// The declaration was emitted, but Output membership belongs to Slice 5.
+    /// Legacy Slice 3 receipt variant; current Interface generation emits membership.
     InterfaceOutputMembership { declaration: VocabularyEncodedId },
-    /// The declaration was emitted, but Refusal behavior belongs to Slice 5.
+    /// Legacy Slice 3 receipt variant; current Interface generation emits behavior.
     InterfaceRefusalSemantics { declaration: VocabularyEncodedId },
     /// The application remains fully typed in WholeEthos; Stream semantics are Slice 6.
     InterfaceOperatorApplication {
@@ -286,6 +275,7 @@ pub struct BatchConfiguration {
     grammar: EthosGrammarConfiguration,
     rust_grammar: RustGrammarConfiguration,
     priors: PriorConfiguration,
+    interface_roles: InterfaceRoleConfiguration,
     names: Vec<NameConfiguration>,
 }
 
@@ -314,6 +304,16 @@ impl OfflineBatchConfiguration for BatchConfiguration {
         for spelling in self.priors.object_application_heads {
             priors = priors.with_object_application_head(names.require_universal(&spelling)?)?;
         }
+        let input_role = names.require_universal(&self.interface_roles.input)?;
+        let output_role = names.require_universal(&self.interface_roles.output)?;
+        let refusal_role = names.require_universal(&self.interface_roles.refusal)?;
+        let interface_roles = InterfaceRoleIdentities::new(
+            input_role.clone(),
+            output_role.clone(),
+            refusal_role.clone(),
+        )?;
+        let interface_rust_roles =
+            InterfaceRustRoleIds::new(input_role, output_role, refusal_role)?;
         let rust_ids = self.rust_grammar.seat(&mut names)?;
         let rust_vocabulary = FixtureRustVocabulary::seal(rust_ids, &names)?;
         Ok(PreparedBatchGenerator {
@@ -321,6 +321,8 @@ impl OfflineBatchConfiguration for BatchConfiguration {
             rust: RustLogos::new(rust_vocabulary),
             names,
             transformation: NexusTransformation::new(),
+            interface_roles,
+            interface_rust_roles,
         })
     }
 }
@@ -358,6 +360,14 @@ struct PriorConfiguration {
     application_heads: Vec<String>,
     #[serde(default)]
     object_application_heads: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InterfaceRoleConfiguration {
+    input: String,
+    output: String,
+    refusal: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -633,6 +643,9 @@ pub enum BatchConfigurationError {
     /// An Ethos prior selected a Rust-root name.
     #[error("batch configuration prior {spelling:?} must be Universal")]
     ExpectedUniversal { spelling: String },
+    /// Interface role validation at the structural Nomos boundary failed.
+    #[error("Interface role configuration failed: {0}")]
+    InterfaceProjection(#[from] NexusTransformationError),
     /// Ethos grammar identity validation failed.
     #[error(transparent)]
     EthosGrammar(#[from] EthosGrammarError),

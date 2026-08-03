@@ -218,8 +218,8 @@ dependencies = [
 
 [[package]]
 name = "core-nomos"
-version = "0.34.0"
-source = "git+https://github.com/LiGoldragon/core-nomos.git?rev=f1f6ca55fbc69afec135b385ed758725f4c2696a#f1f6ca55fbc69afec135b385ed758725f4c2696a"
+version = "0.35.0"
+source = "git+https://github.com/LiGoldragon/core-nomos.git?rev=ae0febaf517d436cd55c2531ad2bb8643399c2e0#ae0febaf517d436cd55c2531ad2bb8643399c2e0"
 dependencies = [
  "content-identity 0.3.0",
  "content-identity 0.5.0",
@@ -414,7 +414,7 @@ dependencies = [
 
 [[package]]
 name = "nomos-engine"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "content-identity 0.5.0",
  "core-ethos 0.23.0",
@@ -422,11 +422,11 @@ dependencies = [
  "core-logos 0.20.0",
  "core-logos 0.22.0",
  "core-nomos 0.30.0",
- "core-nomos 0.34.0",
+ "core-nomos 0.35.0",
  "name-table 0.3.0",
  "protos 0.4.0",
  "rkyv",
- "rust-logos 0.22.0",
+ "rust-logos 0.23.0",
  "sema-engine",
  "serde",
  "serde_json",
@@ -619,8 +619,8 @@ dependencies = [
 
 [[package]]
 name = "rust-logos"
-version = "0.22.0"
-source = "git+https://github.com/LiGoldragon/rust-logos.git?rev=14491e0cc2e34799b771573f1eeeaaf44a616405#14491e0cc2e34799b771573f1eeeaaf44a616405"
+version = "0.23.0"
+source = "git+https://github.com/LiGoldragon/rust-logos.git?rev=44ade15083a760cb036d727e4c2aec8a08769993#44ade15083a760cb036d727e4c2aec8a08769993"
 dependencies = [
  "bs58",
  "core-logos 0.22.0",
