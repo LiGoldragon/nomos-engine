@@ -181,8 +181,8 @@ dependencies = [
 
 [[package]]
 name = "core-logos"
-version = "0.23.0"
-source = "git+https://github.com/LiGoldragon/core-logos.git?rev=0881344036fc987d95d0430b0fd152ee7c153b0e#0881344036fc987d95d0430b0fd152ee7c153b0e"
+version = "0.24.0"
+source = "git+https://github.com/LiGoldragon/core-logos.git?rev=f02ce18c93f85ce44e6e2e291a2bd514346eccbe#f02ce18c93f85ce44e6e2e291a2bd514346eccbe"
 dependencies = [
  "content-identity 0.3.0",
  "content-identity 0.4.0",
@@ -218,15 +218,15 @@ dependencies = [
 
 [[package]]
 name = "core-nomos"
-version = "0.36.0"
-source = "git+https://github.com/LiGoldragon/core-nomos.git?rev=9b81bda53c1614bac5d752f31dfea3ee6cdf046c#9b81bda53c1614bac5d752f31dfea3ee6cdf046c"
+version = "0.37.0"
+source = "git+https://github.com/LiGoldragon/core-nomos.git?rev=afc70296b86ef9fa2b523040d24e11ade38f9d1c#afc70296b86ef9fa2b523040d24e11ade38f9d1c"
 dependencies = [
  "content-identity 0.3.0",
  "content-identity 0.5.0",
  "core-ethos 0.23.0",
  "core-ethos 0.25.0",
  "core-logos 0.20.0",
- "core-logos 0.23.0",
+ "core-logos 0.24.0",
  "name-table 0.1.0",
  "name-table 0.3.0",
  "protos 0.4.0",
@@ -414,19 +414,19 @@ dependencies = [
 
 [[package]]
 name = "nomos-engine"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "content-identity 0.5.0",
  "core-ethos 0.23.0",
  "core-ethos 0.25.0",
  "core-logos 0.20.0",
- "core-logos 0.23.0",
+ "core-logos 0.24.0",
  "core-nomos 0.30.0",
- "core-nomos 0.36.0",
+ "core-nomos 0.37.0",
  "name-table 0.3.0",
  "protos 0.4.0",
  "rkyv",
- "rust-logos 0.25.0",
+ "rust-logos 0.26.0",
  "sema-engine",
  "serde",
  "serde_json",
@@ -619,11 +619,11 @@ dependencies = [
 
 [[package]]
 name = "rust-logos"
-version = "0.25.0"
-source = "git+https://github.com/LiGoldragon/rust-logos.git?rev=ef216129d75f30147619195312d3de4d01e42dce#ef216129d75f30147619195312d3de4d01e42dce"
+version = "0.26.0"
+source = "git+https://github.com/LiGoldragon/rust-logos.git?rev=1e394e37f203ec676c318ea86b17751e11f740d2#1e394e37f203ec676c318ea86b17751e11f740d2"
 dependencies = [
  "bs58",
- "core-logos 0.23.0",
+ "core-logos 0.24.0",
  "name-table 0.1.0",
  "name-table 0.3.0",
  "prettyplease",

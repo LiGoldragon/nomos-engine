@@ -1,18 +1,21 @@
 use batch_core_ethos::{EthosDecodeError, WholeEthosFileKind};
 use nomos_engine::batch::{
-    BatchConfiguration, BatchGenerationError, BatchOutcomeReporting, DeferredBatchConstruct,
-    OfflineBatchConfiguration, OfflineBatchGeneration, PreparedBatchGenerator,
+    BatchConfiguration, BatchGenerationError, BatchImportError, BatchOutcomeReporting,
+    DeferredBatchConstruct, OfflineBatchConfiguration, OfflineBatchGeneration,
+    PreparedBatchGenerator,
 };
 use serde_json::{Value, json};
 
 const INTERFACE: &str = "Interface.1\n[]\n{\n  [Command.Text]\n  [Event.Text]\n  [Rejected.{Reason Text}]\n  [Text.Integer Stream.Feed.{Command Event Rejected}]\n}\n";
 const NEXUS: &str = "Nexus.1\n[]\n{\n  [Decision.[Accepted Rejected.Reason]]\n  []\n}\n";
 const SEMA: &str = "Sema.1\n[]\n{\n  [Stored.{Integer}]\n  [records.{Stored Integer}]\n}\n";
+const IMPORTED_SEMA: &str =
+    "Sema.1\n[signal-domain.{Domain}]\n{\n  [Stored.{Integer}]\n  [records.{Stored Domain}]\n}\n";
 
 fn generator() -> PreparedBatchGenerator {
     let source_names = [
         "Integer", "Vector", "Input", "Output", "Refusal", "Command", "Text", "Event", "Rejected",
-        "Reason", "Stream", "Feed", "Decision", "Accepted", "Stored", "records",
+        "Reason", "Stream", "Feed", "Decision", "Accepted", "Stored", "records", "Domain",
     ];
     let names: Vec<Value> = source_names
         .into_iter()
@@ -41,6 +44,19 @@ fn generator() -> PreparedBatchGenerator {
                 "output": "Output",
                 "refusal": "Refusal",
             },
+            "rust_types": [
+                {
+                    "spelling": "Integer",
+                    "path": ["u64"],
+                    "storage_fingerprint": "0101010101010101010101010101010101010101010101010101010101010101",
+                },
+                {
+                    "spelling": "Domain",
+                    "import_source": "signal-domain",
+                    "path": ["signal_domain", "Domain"],
+                    "storage_fingerprint": "0202020202020202020202020202020202020202020202020202020202020202",
+                },
+            ],
             "names": names,
         })
         .to_string(),
@@ -48,6 +64,33 @@ fn generator() -> PreparedBatchGenerator {
     .expect("configuration JSON should decode")
     .prepare()
     .expect("configuration should seat without allocating identities")
+}
+
+#[test]
+fn imported_types_require_exact_caller_owned_paths_and_storage_contracts() {
+    let generator = generator();
+
+    let generated = generator
+        .generate(IMPORTED_SEMA)
+        .expect("configured imported Domain should generate");
+    assert!(
+        generated
+            .rust()
+            .contains("type Key = signal_domain::Domain")
+    );
+
+    let wrong_source = IMPORTED_SEMA.replace("signal-domain", "lookalike-domain");
+    match generator.generate(&wrong_source) {
+        Err(BatchGenerationError::Import(BatchImportError::MissingMapping {
+            import_source,
+            spelling,
+        })) => {
+            assert_eq!(import_source, "lookalike-domain");
+            assert_eq!(spelling, "Domain");
+        }
+        Err(error) => panic!("unexpected missing-import error: {error}"),
+        Ok(_) => panic!("unconfigured imported Domain unexpectedly generated"),
+    }
 }
 
 fn is_interface_operator_deferral(construct: &DeferredBatchConstruct) -> bool {
