@@ -414,7 +414,7 @@ dependencies = [
 
 [[package]]
 name = "nomos-engine"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "content-identity 0.5.0",
  "core-ethos 0.23.0",
@@ -426,7 +426,7 @@ dependencies = [
  "name-table 0.3.0",
  "protos 0.4.0",
  "rkyv",
- "rust-logos 0.26.0",
+ "rust-logos 0.27.0",
  "sema-engine",
  "serde",
  "serde_json",
@@ -619,8 +619,8 @@ dependencies = [
 
 [[package]]
 name = "rust-logos"
-version = "0.26.0"
-source = "git+https://github.com/LiGoldragon/rust-logos.git?rev=1e394e37f203ec676c318ea86b17751e11f740d2#1e394e37f203ec676c318ea86b17751e11f740d2"
+version = "0.27.0"
+source = "git+https://github.com/LiGoldragon/rust-logos.git?rev=9109c2a4e172db9cde633760fac932ece69f25f9#9109c2a4e172db9cde633760fac932ece69f25f9"
 dependencies = [
  "bs58",
  "core-logos 0.24.0",

@@ -1,6 +1,6 @@
 [package]
 name = "nomos-engine"
-version = "0.12.0"
+version = "0.13.0"
 edition = "2024"
 rust-version = "1.89"
 license = "MIT OR Apache-2.0"
@@ -17,7 +17,7 @@ core-nomos = { git = "https://github.com/LiGoldragon/core-nomos.git", rev = "647
 name-table = { git = "https://github.com/LiGoldragon/name-table.git", rev = "50cb4bb53ae2dc4f2516f6912be328ef98ae49f8" }
 protos = { git = "https://github.com/LiGoldragon/protos.git", rev = "c85cec6117bfd4c423d952fd54e0c0bb11562f89" }
 rkyv = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
-rust-logos = { git = "https://github.com/LiGoldragon/rust-logos.git", rev = "1e394e37f203ec676c318ea86b17751e11f740d2" }
+rust-logos = { git = "https://github.com/LiGoldragon/rust-logos.git", rev = "9109c2a4e172db9cde633760fac932ece69f25f9" }
 sema-engine = { git = "https://github.com/LiGoldragon/sema-engine.git", rev = "e28c8e6503cf3592f21da9f44371a1b2a6448151" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
