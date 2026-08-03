@@ -191,12 +191,6 @@ impl BatchOutcomeReporting for BatchGenerationOutcome {
 /// One source construct whose semantics are not claimed by the current batch path.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DeferredBatchConstruct {
-    /// Legacy Slice 3 receipt variant; current Interface generation emits membership.
-    InterfaceInputMembership { declaration: VocabularyEncodedId },
-    /// Legacy Slice 3 receipt variant; current Interface generation emits membership.
-    InterfaceOutputMembership { declaration: VocabularyEncodedId },
-    /// Legacy Slice 3 receipt variant; current Interface generation emits behavior.
-    InterfaceRefusalSemantics { declaration: VocabularyEncodedId },
     /// The application remains fully typed in WholeEthos; Stream semantics are Slice 6.
     InterfaceOperatorApplication {
         application: WholeEthosOperatorApplication,
@@ -208,30 +202,6 @@ pub enum DeferredBatchConstruct {
 impl DeferredBatchConstruct {
     fn write_report(&self, report: &mut String) {
         match self {
-            Self::InterfaceInputMembership { declaration } => {
-                writeln!(
-                    report,
-                    "deferred interface-input-membership {}",
-                    RustEncodedIdCodec::encode(declaration)
-                )
-                .expect("String writes cannot fail");
-            }
-            Self::InterfaceOutputMembership { declaration } => {
-                writeln!(
-                    report,
-                    "deferred interface-output-membership {}",
-                    RustEncodedIdCodec::encode(declaration)
-                )
-                .expect("String writes cannot fail");
-            }
-            Self::InterfaceRefusalSemantics { declaration } => {
-                writeln!(
-                    report,
-                    "deferred interface-refusal-semantics {}",
-                    RustEncodedIdCodec::encode(declaration)
-                )
-                .expect("String writes cannot fail");
-            }
             Self::InterfaceOperatorApplication { application } => {
                 writeln!(
                     report,

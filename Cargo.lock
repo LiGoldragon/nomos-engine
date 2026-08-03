@@ -414,7 +414,7 @@ dependencies = [
 
 [[package]]
 name = "nomos-engine"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "content-identity 0.5.0",
  "core-ethos 0.23.0",

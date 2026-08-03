@@ -50,6 +50,13 @@ fn generator() -> PreparedBatchGenerator {
     .expect("configuration should seat without allocating identities")
 }
 
+fn is_interface_operator_deferral(construct: &DeferredBatchConstruct) -> bool {
+    match construct {
+        DeferredBatchConstruct::InterfaceOperatorApplication { .. } => true,
+        DeferredBatchConstruct::SemaTable { .. } => false,
+    }
+}
+
 fn grammar_configuration() -> Value {
     json!({
         "interface_document": [1],
@@ -107,15 +114,19 @@ fn all_current_file_kinds_return_artifacts_with_explicit_deferred_receipts() {
         .expect("Interface declarations should generate");
     assert_eq!(interface.kind(), WholeEthosFileKind::Interface);
     assert_eq!(interface.deferred().len(), 1);
-    assert!(matches!(
-        interface.deferred()[0],
-        DeferredBatchConstruct::InterfaceOperatorApplication { .. }
-    ));
+    assert!(
+        interface
+            .deferred()
+            .iter()
+            .all(is_interface_operator_deferral)
+    );
     assert!(interface.rust().contains("#[derive(rkyv::Archive"));
     assert!(interface.rust().contains("impl std::fmt::Display"));
     assert!(interface.rust().contains("impl std::error::Error"));
     assert!(!interface.rust().contains("impl From<"));
     assert!(interface.report().contains("deferred 1"));
+    assert!(!interface.report().contains("membership"));
+    assert!(!interface.report().contains("refusal-semantics"));
 
     let sema = generator
         .generate(SEMA)
