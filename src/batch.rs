@@ -11,10 +11,10 @@ use batch_core_ethos::{
     EthosGrammarIds, WholeEthosBody, WholeEthosBuiltinPriorError, WholeEthosBuiltinPriors,
     WholeEthosFileKind, WholeEthosOperatorApplication, WholeEthosTable,
 };
-use batch_core_logos::{WholeLogos, WholeLogosTypeAttributes};
+use batch_core_logos::WholeLogos;
 use batch_core_nomos::{
     InterfaceRoleIdentities, InterfaceStructuralTransformation, NexusStructuralTransformation,
-    NexusTransformation, NexusTransformationError, TypeDeclarationStructuralTransformation,
+    NexusTransformation, NexusTransformationError, SemaStructuralTransformation,
 };
 use name_table::{LocalEncodedId, Name};
 use rust_logos::{
@@ -115,18 +115,18 @@ impl CurrentBatchProjection for NexusTransformation {
                         .collect(),
                 })
             }
-            WholeEthosBody::Sema(body) => Ok(BatchProjection {
-                logos: self.lower_type_declarations(
-                    body.record_types(),
-                    WholeLogosTypeAttributes::Plain,
-                )?,
-                deferred: body
-                    .tables()
-                    .iter()
-                    .cloned()
-                    .map(|table| DeferredBatchConstruct::SemaTable { table })
-                    .collect(),
-            }),
+            WholeEthosBody::Sema(_) => {
+                let outcome = self.lower_sema(ethos)?;
+                Ok(BatchProjection {
+                    logos: outcome.logos().clone(),
+                    deferred: outcome
+                        .deferred_tables()
+                        .iter()
+                        .cloned()
+                        .map(|table| DeferredBatchConstruct::SemaTable { table })
+                        .collect(),
+                })
+            }
         }
     }
 }
@@ -195,7 +195,7 @@ pub enum DeferredBatchConstruct {
     InterfaceOperatorApplication {
         application: WholeEthosOperatorApplication,
     },
-    /// Record declarations were emitted; table/storage machinery belongs to Slice 7.
+    /// A valid table names an imported record type not emitted by this document.
     SemaTable { table: WholeEthosTable },
 }
 

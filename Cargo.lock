@@ -181,8 +181,8 @@ dependencies = [
 
 [[package]]
 name = "core-logos"
-version = "0.22.0"
-source = "git+https://github.com/LiGoldragon/core-logos.git?rev=bd5155f51ee5301b78cd8b3c070a98e2267e7477#bd5155f51ee5301b78cd8b3c070a98e2267e7477"
+version = "0.23.0"
+source = "git+https://github.com/LiGoldragon/core-logos.git?rev=0881344036fc987d95d0430b0fd152ee7c153b0e#0881344036fc987d95d0430b0fd152ee7c153b0e"
 dependencies = [
  "content-identity 0.3.0",
  "content-identity 0.4.0",
@@ -218,15 +218,15 @@ dependencies = [
 
 [[package]]
 name = "core-nomos"
-version = "0.35.0"
-source = "git+https://github.com/LiGoldragon/core-nomos.git?rev=ae0febaf517d436cd55c2531ad2bb8643399c2e0#ae0febaf517d436cd55c2531ad2bb8643399c2e0"
+version = "0.36.0"
+source = "git+https://github.com/LiGoldragon/core-nomos.git?rev=9b81bda53c1614bac5d752f31dfea3ee6cdf046c#9b81bda53c1614bac5d752f31dfea3ee6cdf046c"
 dependencies = [
  "content-identity 0.3.0",
  "content-identity 0.5.0",
  "core-ethos 0.23.0",
  "core-ethos 0.25.0",
  "core-logos 0.20.0",
- "core-logos 0.22.0",
+ "core-logos 0.23.0",
  "name-table 0.1.0",
  "name-table 0.3.0",
  "protos 0.4.0",
@@ -414,19 +414,19 @@ dependencies = [
 
 [[package]]
 name = "nomos-engine"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "content-identity 0.5.0",
  "core-ethos 0.23.0",
  "core-ethos 0.25.0",
  "core-logos 0.20.0",
- "core-logos 0.22.0",
+ "core-logos 0.23.0",
  "core-nomos 0.30.0",
- "core-nomos 0.35.0",
+ "core-nomos 0.36.0",
  "name-table 0.3.0",
  "protos 0.4.0",
  "rkyv",
- "rust-logos 0.23.0",
+ "rust-logos 0.24.0",
  "sema-engine",
  "serde",
  "serde_json",
@@ -619,11 +619,11 @@ dependencies = [
 
 [[package]]
 name = "rust-logos"
-version = "0.23.0"
-source = "git+https://github.com/LiGoldragon/rust-logos.git?rev=44ade15083a760cb036d727e4c2aec8a08769993#44ade15083a760cb036d727e4c2aec8a08769993"
+version = "0.24.0"
+source = "git+https://github.com/LiGoldragon/rust-logos.git?rev=0daf0b0a3b31c7d000c980038f3eef51596124ac#0daf0b0a3b31c7d000c980038f3eef51596124ac"
 dependencies = [
  "bs58",
- "core-logos 0.22.0",
+ "core-logos 0.23.0",
  "name-table 0.1.0",
  "name-table 0.3.0",
  "prettyplease",
@@ -668,8 +668,8 @@ dependencies = [
 
 [[package]]
 name = "sema-engine"
-version = "0.11.2"
-source = "git+https://github.com/LiGoldragon/sema-engine.git?rev=7bed5017a6f20ff2c109f693c2dedaaddf52e64d#7bed5017a6f20ff2c109f693c2dedaaddf52e64d"
+version = "0.12.0"
+source = "git+https://github.com/LiGoldragon/sema-engine.git?rev=e28c8e6503cf3592f21da9f44371a1b2a6448151#e28c8e6503cf3592f21da9f44371a1b2a6448151"
 dependencies = [
  "blake3",
  "rkyv",

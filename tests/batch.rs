@@ -132,12 +132,12 @@ fn all_current_file_kinds_return_artifacts_with_explicit_deferred_receipts() {
         .generate(SEMA)
         .expect("Sema record declarations should generate");
     assert_eq!(sema.kind(), WholeEthosFileKind::Sema);
-    assert_eq!(sema.deferred().len(), 1);
-    assert!(matches!(
-        sema.deferred()[0],
-        DeferredBatchConstruct::SemaTable { .. }
-    ));
-    assert!(sema.rust().contains("pub struct"));
+    assert!(sema.deferred().is_empty());
+    assert!(sema.rust().contains("#[derive(rkyv::Archive"));
+    assert!(sema.rust().contains("impl sema_engine::TableSpecification"));
+    assert!(sema.rust().contains("type Record ="));
+    assert!(sema.rust().contains("type Key ="));
+    assert!(sema.report().contains("deferred 0"));
 }
 
 #[test]

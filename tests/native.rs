@@ -129,7 +129,7 @@ fn production_sources_exclude_legacy_and_central_storage_paths() {
     assert!(store.contains("EngineOpen::new"));
     assert!(store.contains("NativeAuthoredEvaluator"));
     assert!(store.contains("NativeLogosPopulation::<EngineLogosNameTree>::from_archive_bytes"));
-    assert!(manifest.contains("version = \"0.9.0\""));
+    assert!(manifest.contains("version = \"0.10.0\""));
     for revision in [
         "7bb9c5a0a31851641998b26f14326515ca64a7e8",
         "6470efc171a2acb652fba7d512f76c26f7a53d82",
