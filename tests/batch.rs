@@ -8,13 +8,13 @@ use serde_json::{Value, json};
 
 const INTERFACE: &str = "Interface.1\n[]\n{\n  [Command.String]\n  [Event.String]\n  [Rejected.{Reason String}]\n  [String.Integer Observer.Stream.(Command Event)]\n}\n";
 const NEXUS: &str = "Nexus.1\n[]\n{\n  [Decision.[Accepted Rejected.Reason]]\n  []\n}\n";
-const SEMA: &str = "Sema.1\n[]\n{\n  [Stored.{Integer}]\n  [records.{Stored Integer}]\n}\n";
-const IMPORTED_SEMA: &str =
-    "Sema.1\n[signal-domain.{Domain}]\n{\n  [Stored.{Integer}]\n  [records.{Stored Domain}]\n}\n";
+const SEMA: &str = "Sema.1\n[]\n{\n  [Stored.{Integer} Key.Integer]\n  [records.{Stored Key}]\n}\n";
+const IMPORTED_SEMA: &str = "Sema.1\n[signal-domain.{Domain}]\n{\n  [Stored.{Integer} Key.Domain]\n  [records.{Stored Key}]\n}\n";
 const IMPORTED_RECORD_SEMA: &str =
     "Sema.1\n[signal-domain.{Domain}]\n{\n  []\n  [records.{Domain Integer}]\n}\n";
-const BUNDLE_INTERFACE: &str = "Interface.1\n[]\n{\n  []\n  []\n  []\n  [Entry.{Integer}]\n}\n";
-const BUNDLE_SEMA: &str = "Sema.1\n[interface.{Entry}]\n{\n  []\n  [records.{Entry Integer}]\n}\n";
+const BUNDLE_INTERFACE: &str =
+    "Interface.1\n[]\n{\n  []\n  []\n  []\n  [Key.Integer Entry.{Integer}]\n}\n";
+const BUNDLE_SEMA: &str = "Sema.1\n[interface.{Entry Key}]\n{\n  []\n  [records.{Entry Key}]\n}\n";
 
 fn generator() -> PreparedBatchGenerator {
     let source_names = [
@@ -38,6 +38,7 @@ fn generator() -> PreparedBatchGenerator {
         "Decision",
         "Accepted",
         "Stored",
+        "Key",
         "records",
         "Domain",
         "Entry",
@@ -93,6 +94,11 @@ fn generator() -> PreparedBatchGenerator {
                     "spelling": "Entry",
                     "import_source": "interface",
                     "path": ["crate", "interface", "Entry"],
+                },
+                {
+                    "spelling": "Key",
+                    "import_source": "interface",
+                    "path": ["crate", "interface", "Key"],
                 },
             ],
             "stream_lifecycles": [
@@ -173,11 +179,7 @@ fn imported_types_require_exact_caller_owned_paths_and_storage_contracts() {
         .generate_bundle(&[BatchComponent::standalone(IMPORTED_SEMA)])
         .expect("configured imported Domain should generate");
     let generated = generated.pop().expect("one standalone outcome");
-    assert!(
-        generated
-            .rust()
-            .contains("type Key = signal_domain::Domain")
-    );
+    assert!(generated.rust().contains("signal_domain::Domain"));
 
     let wrong_source = IMPORTED_SEMA.replace("signal-domain", "lookalike-domain");
     match generator.generate_bundle(&[BatchComponent::standalone(&wrong_source)]) {
@@ -278,6 +280,10 @@ fn all_current_file_kinds_return_complete_artifacts() {
     assert!(sema.rust().contains("impl sema_engine::TableSpecification"));
     assert!(sema.rust().contains("type Record ="));
     assert!(sema.rust().contains("type Key ="));
+    assert!(
+        sema.rust()
+            .contains("RecordKey::new(key.payload().to_string())")
+    );
     assert!(!sema.report().contains("deferred"));
 }
 

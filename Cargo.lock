@@ -149,7 +149,7 @@ dependencies = [
 [[package]]
 name = "core-ethos"
 version = "0.25.0"
-source = "git+https://github.com/LiGoldragon/core-ethos.git?rev=29237c33798db908bbfe10ef0cffe2c6a28be508#29237c33798db908bbfe10ef0cffe2c6a28be508"
+source = "git+https://github.com/LiGoldragon/core-ethos.git?rev=e0abb0a369ecfd146e406a99ed8db75327a564d2#e0abb0a369ecfd146e406a99ed8db75327a564d2"
 dependencies = [
  "content-identity 0.3.0",
  "content-identity 0.4.0",
@@ -183,7 +183,7 @@ dependencies = [
 [[package]]
 name = "core-logos"
 version = "0.24.0"
-source = "git+https://github.com/LiGoldragon/core-logos.git?rev=5733b586c72a3191e12b3e09cf01a4a6caba4242#5733b586c72a3191e12b3e09cf01a4a6caba4242"
+source = "git+https://github.com/LiGoldragon/core-logos.git?rev=80e4ab18856f388a347320955eac365cfa766ce3#80e4ab18856f388a347320955eac365cfa766ce3"
 dependencies = [
  "content-identity 0.3.0",
  "content-identity 0.4.0",
@@ -220,7 +220,7 @@ dependencies = [
 [[package]]
 name = "core-nomos"
 version = "0.37.0"
-source = "git+https://github.com/LiGoldragon/core-nomos.git?rev=47ad2e576e00688e0c2615209c943171252289f0#47ad2e576e00688e0c2615209c943171252289f0"
+source = "git+https://github.com/LiGoldragon/core-nomos.git?rev=5b5e24dddaf548ed98f3a2bf2475b9bcabf15c6e#5b5e24dddaf548ed98f3a2bf2475b9bcabf15c6e"
 dependencies = [
  "content-identity 0.3.0",
  "content-identity 0.5.0",
@@ -638,7 +638,7 @@ dependencies = [
 [[package]]
 name = "rust-logos"
 version = "0.27.0"
-source = "git+https://github.com/LiGoldragon/rust-logos.git?rev=9b2a6ef7a14a7df77e8c7f165226169c85c79ccd#9b2a6ef7a14a7df77e8c7f165226169c85c79ccd"
+source = "git+https://github.com/LiGoldragon/rust-logos.git?rev=7366fff3f8adb2a78c6e66fd77bb267e6ee3e5d2#7366fff3f8adb2a78c6e66fd77bb267e6ee3e5d2"
 dependencies = [
  "bs58",
  "core-logos 0.24.0",
@@ -687,7 +687,7 @@ dependencies = [
 [[package]]
 name = "sema-engine"
 version = "0.12.0"
-source = "git+https://github.com/LiGoldragon/sema-engine.git?rev=e28c8e6503cf3592f21da9f44371a1b2a6448151#e28c8e6503cf3592f21da9f44371a1b2a6448151"
+source = "git+https://github.com/LiGoldragon/sema-engine.git?rev=98a6a252730bfba9d63afd9c5f73a2bc87000a8e#98a6a252730bfba9d63afd9c5f73a2bc87000a8e"
 dependencies = [
  "blake3",
  "rkyv",
