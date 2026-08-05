@@ -1,7 +1,8 @@
 use batch_core_ethos::{EthosDecodeError, WholeEthosFileKind};
 use nomos_engine::batch::{
-    BatchConfiguration, BatchGenerationError, BatchImportError, BatchOutcomeReporting,
-    OfflineBatchConfiguration, OfflineBatchGeneration, PreparedBatchGenerator,
+    BatchComponent, BatchConfiguration, BatchGenerationError, BatchImportError,
+    BatchOutcomeReporting, OfflineBatchConfiguration, OfflineBatchGeneration,
+    PreparedBatchGenerator,
 };
 use serde_json::{Value, json};
 
@@ -12,6 +13,8 @@ const IMPORTED_SEMA: &str =
     "Sema.1\n[signal-domain.{Domain}]\n{\n  [Stored.{Integer}]\n  [records.{Stored Domain}]\n}\n";
 const IMPORTED_RECORD_SEMA: &str =
     "Sema.1\n[signal-domain.{Domain}]\n{\n  []\n  [records.{Domain Integer}]\n}\n";
+const BUNDLE_INTERFACE: &str = "Interface.1\n[]\n{\n  []\n  []\n  []\n  [Entry.{Integer}]\n}\n";
+const BUNDLE_SEMA: &str = "Sema.1\n[interface.{Entry}]\n{\n  []\n  [records.{Entry Integer}]\n}\n";
 
 fn generator() -> PreparedBatchGenerator {
     let source_names = [
@@ -37,6 +40,7 @@ fn generator() -> PreparedBatchGenerator {
         "Stored",
         "records",
         "Domain",
+        "Entry",
     ];
     let names: Vec<Value> = source_names
         .into_iter()
@@ -69,13 +73,26 @@ fn generator() -> PreparedBatchGenerator {
                 {
                     "spelling": "Integer",
                     "path": ["u64"],
-                    "storage_fingerprint": "0101010101010101010101010101010101010101010101010101010101010101",
+                    "external_storage": {
+                        "source": "test://integer",
+                        "revision": "test-revision",
+                        "fingerprint": "0101010101010101010101010101010101010101010101010101010101010101",
+                    },
                 },
                 {
                     "spelling": "Domain",
                     "import_source": "signal-domain",
                     "path": ["signal_domain", "Domain"],
-                    "storage_fingerprint": "0202020202020202020202020202020202020202020202020202020202020202",
+                    "external_storage": {
+                        "source": "https://github.com/LiGoldragon/signal-domain",
+                        "revision": "test-domain-revision",
+                        "fingerprint": "0202020202020202020202020202020202020202020202020202020202020202",
+                    },
+                },
+                {
+                    "spelling": "Entry",
+                    "import_source": "interface",
+                    "path": ["crate", "interface", "Entry"],
                 },
             ],
             "stream_lifecycles": [
@@ -98,12 +115,64 @@ fn generator() -> PreparedBatchGenerator {
 }
 
 #[test]
+fn bundle_imports_resolve_to_pre_registered_interface_declarations() {
+    let generator = generator();
+    let outcomes = generator
+        .generate_bundle(&[
+            BatchComponent::named("interface", BUNDLE_INTERFACE),
+            BatchComponent::named("sema", BUNDLE_SEMA),
+        ])
+        .expect("complete Interface/Sema bundle should generate");
+    let [interface, sema] = outcomes.as_slice() else {
+        panic!("one receipt per bundle component")
+    };
+    assert_eq!(interface.kind(), WholeEthosFileKind::Interface);
+    assert_eq!(sema.kind(), WholeEthosFileKind::Sema);
+    assert!(
+        sema.rust()
+            .contains("type Record = crate::interface::Entry")
+    );
+    assert!(sema.rust().contains("impl sema_engine::TableSpecification"));
+}
+
+#[test]
+fn bundle_source_labels_refuse_duplicates_and_false_internal_declarations() {
+    let generator = generator();
+    match generator.generate_bundle(&[
+        BatchComponent::named("interface", BUNDLE_INTERFACE),
+        BatchComponent::named("interface", BUNDLE_INTERFACE),
+    ]) {
+        Err(BatchGenerationError::DuplicateBundleModule { module }) => {
+            assert_eq!(module, "interface");
+        }
+        Err(error) => panic!("unexpected duplicate-module error: {error}"),
+        Ok(_) => panic!("duplicate component module unexpectedly generated"),
+    }
+
+    match generator.generate_bundle(&[
+        BatchComponent::named("interface", INTERFACE),
+        BatchComponent::named("sema", BUNDLE_SEMA),
+    ]) {
+        Err(BatchGenerationError::Import(BatchImportError::BundleImportNotDeclared {
+            import_source,
+            spelling,
+        })) => {
+            assert_eq!(import_source, "interface");
+            assert_eq!(spelling, "Entry");
+        }
+        Err(error) => panic!("unexpected false-local-import error: {error}"),
+        Ok(_) => panic!("false local declaration unexpectedly generated"),
+    }
+}
+
+#[test]
 fn imported_types_require_exact_caller_owned_paths_and_storage_contracts() {
     let generator = generator();
 
-    let generated = generator
-        .generate(IMPORTED_SEMA)
+    let mut generated = generator
+        .generate_bundle(&[BatchComponent::standalone(IMPORTED_SEMA)])
         .expect("configured imported Domain should generate");
+    let generated = generated.pop().expect("one standalone outcome");
     assert!(
         generated
             .rust()
@@ -111,7 +180,7 @@ fn imported_types_require_exact_caller_owned_paths_and_storage_contracts() {
     );
 
     let wrong_source = IMPORTED_SEMA.replace("signal-domain", "lookalike-domain");
-    match generator.generate(&wrong_source) {
+    match generator.generate_bundle(&[BatchComponent::standalone(&wrong_source)]) {
         Err(BatchGenerationError::Import(BatchImportError::MissingMapping {
             import_source,
             spelling,
@@ -123,10 +192,10 @@ fn imported_types_require_exact_caller_owned_paths_and_storage_contracts() {
         Ok(_) => panic!("unconfigured imported Domain unexpectedly generated"),
     }
 
-    match generator.generate(IMPORTED_RECORD_SEMA) {
-        Err(BatchGenerationError::SemaTablesRequireGeneratedOwner { count }) => {
-            assert_eq!(count, 1);
-        }
+    match generator.generate_bundle(&[BatchComponent::standalone(IMPORTED_RECORD_SEMA)]) {
+        Err(BatchGenerationError::Projection(
+            batch_core_nomos::NexusTransformationError::SemaTableRecordNotBundleOwned { .. },
+        )) => {}
         Err(error) => panic!("unexpected imported-record Sema refusal: {error}"),
         Ok(_) => panic!("partial imported-record Sema output unexpectedly generated"),
     }
@@ -177,13 +246,17 @@ fn rust_grammar_configuration() -> Value {
 fn all_current_file_kinds_return_complete_artifacts() {
     let generator = generator();
 
-    let nexus = generator.generate(NEXUS).expect("Nexus should generate");
+    let mut nexus = generator
+        .generate_bundle(&[BatchComponent::standalone(NEXUS)])
+        .expect("Nexus should generate");
+    let nexus = nexus.pop().expect("one standalone outcome");
     assert_eq!(nexus.kind(), WholeEthosFileKind::Nexus);
     assert!(nexus.rust().contains("pub enum"));
 
-    let interface = generator
-        .generate(INTERFACE)
+    let mut interface = generator
+        .generate_bundle(&[BatchComponent::standalone(INTERFACE)])
         .expect("Interface declarations should generate");
+    let interface = interface.pop().expect("one standalone outcome");
     assert_eq!(interface.kind(), WholeEthosFileKind::Interface);
     assert!(interface.rust().contains("#[derive(rkyv::Archive"));
     assert!(interface.rust().contains("impl std::fmt::Display"));
@@ -196,9 +269,10 @@ fn all_current_file_kinds_return_complete_artifacts() {
     assert!(!interface.report().contains("membership"));
     assert!(!interface.report().contains("refusal-semantics"));
 
-    let sema = generator
-        .generate(SEMA)
+    let mut sema = generator
+        .generate_bundle(&[BatchComponent::standalone(SEMA)])
         .expect("Sema record declarations should generate");
+    let sema = sema.pop().expect("one standalone outcome");
     assert_eq!(sema.kind(), WholeEthosFileKind::Sema);
     assert!(sema.rust().contains("#[derive(rkyv::Archive"));
     assert!(sema.rust().contains("impl sema_engine::TableSpecification"));
@@ -211,12 +285,12 @@ fn all_current_file_kinds_return_complete_artifacts() {
 fn header_kind_and_version_refusals_remain_typed() {
     let generator = generator();
 
-    match generator.generate("Unknown.1\n[]\n{ [] [] }\n") {
+    match generator.generate_bundle(&[BatchComponent::standalone("Unknown.1\n[]\n{ [] [] }\n")]) {
         Err(BatchGenerationError::Decode(EthosDecodeError::UnknownFileKind { .. })) => {}
         Err(error) => panic!("unexpected unknown-kind error: {error}"),
         Ok(_) => panic!("unknown file kind unexpectedly generated"),
     }
-    match generator.generate("Nexus.2\n[]\n{ [] [] }\n") {
+    match generator.generate_bundle(&[BatchComponent::standalone("Nexus.2\n[]\n{ [] [] }\n")]) {
         Err(BatchGenerationError::Decode(EthosDecodeError::UnsupportedVersion { .. })) => {}
         Err(error) => panic!("unexpected version error: {error}"),
         Ok(_) => panic!("unsupported version unexpectedly generated"),

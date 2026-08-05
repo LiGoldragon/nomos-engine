@@ -7,15 +7,16 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
 use batch_core_ethos::{
-    EthosCodec, EthosCodecBuildError, EthosDecodeError, EthosGrammarError, EthosGrammarIdentities,
-    EthosGrammarIds, WholeEthosBuiltinPriorError, WholeEthosBuiltinPriors, WholeEthosFileKind,
-    WholeEthosImports,
+    DecodedEthos, EthosCodec, EthosCodecBuildError, EthosDecodeError, EthosGrammarError,
+    EthosGrammarIdentities, EthosGrammarIds, WholeEthos, WholeEthosBody,
+    WholeEthosBuiltinPriorError, WholeEthosBuiltinPriors, WholeEthosFileKind, WholeEthosItem,
 };
 use batch_core_logos::WholeLogos;
 use batch_core_nomos::{
-    InterfaceRoleIdentities, InterfaceStructuralTransformation, NexusStructuralTransformation,
-    NexusTransformation, NexusTransformationError, SemaStorageTypeFingerprintMapping,
-    SemaStructuralTransformation, StreamLifecycleIdentities,
+    BundleStorageProvenance, ExternalStorageProvenance, InterfaceRoleIdentities,
+    InterfaceStructuralTransformation, NexusStructuralTransformation, NexusTransformation,
+    NexusTransformationError, SemaStructuralTransformation, StorageProvenanceOwner,
+    StreamLifecycleIdentities,
 };
 use batch_structural_codec::{
     DeclarationAssignment, DecodeNameBindings, EncodedNameResolver, NameOccurrence,
@@ -31,8 +32,49 @@ use signal_sema_translator::{VocabularyEncodedId, VocabularyRoot};
 
 /// Execute one complete offline batch generation request.
 pub trait OfflineBatchGeneration {
-    /// Decode the source, project every declaration, and emit complete Rust.
-    fn generate(&self, source: &str) -> Result<BatchGenerationOutcome, BatchGenerationError>;
+    /// Decode every named component in one capsule, pre-register all typed
+    /// declarations, then project and emit each complete Rust artifact.
+    fn generate_bundle(
+        &self,
+        components: &[BatchComponent<'_>],
+    ) -> Result<Vec<BatchGenerationOutcome>, BatchGenerationError>;
+}
+
+/// One source component in a strict offline capsule. A named component may be
+/// imported by that exact source spelling from another component. A standalone
+/// component deliberately has no importable module identity.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BatchComponent<'source> {
+    module: Option<&'source str>,
+    source: &'source str,
+}
+
+impl<'source> BatchComponent<'source> {
+    /// Make one named, importable component of a complete capsule.
+    pub const fn named(module: &'source str, source: &'source str) -> Self {
+        Self {
+            module: Some(module),
+            source,
+        }
+    }
+
+    /// Make one self-contained capsule component with no importable module.
+    pub const fn standalone(source: &'source str) -> Self {
+        Self {
+            module: None,
+            source,
+        }
+    }
+
+    /// Optional source spelling through which this component may be imported.
+    pub const fn module(&self) -> Option<&'source str> {
+        self.module
+    }
+
+    /// Authored Ethos source text.
+    pub const fn source(&self) -> &'source str {
+        self.source
+    }
 }
 
 /// Stable human-readable projection of a typed batch receipt.
@@ -59,47 +101,82 @@ pub struct PreparedBatchGenerator {
 }
 
 impl OfflineBatchGeneration for PreparedBatchGenerator {
-    fn generate(&self, source: &str) -> Result<BatchGenerationOutcome, BatchGenerationError> {
-        let decoded = self.ethos.decode(source, &self.names)?;
-        let rust_types = self.rust_types.activate(decoded.imports())?;
-        let transformation = NexusTransformation::new()
-            .with_storage_fingerprints(rust_types.storage_fingerprints().to_vec())?
-            .with_stream_lifecycle_identities(self.stream_lifecycles.clone())?;
-        let kind = decoded.ethos().header().kind();
-        let logos = match kind {
-            WholeEthosFileKind::Interface => transformation
-                .lower_interface(decoded.ethos(), &self.interface_roles)?
-                .logos()
-                .clone(),
-            WholeEthosFileKind::Nexus => transformation.lower(decoded.ethos())?,
-            WholeEthosFileKind::Sema => {
-                let outcome = transformation.lower_sema(decoded.ethos())?;
-                if !outcome.deferred_tables().is_empty() {
-                    return Err(BatchGenerationError::SemaTablesRequireGeneratedOwner {
-                        count: outcome.deferred_tables().len(),
+    fn generate_bundle(
+        &self,
+        components: &[BatchComponent<'_>],
+    ) -> Result<Vec<BatchGenerationOutcome>, BatchGenerationError> {
+        if components.is_empty() {
+            return Err(BatchGenerationError::EmptyBundle);
+        }
+        let mut modules = BTreeSet::new();
+        let mut decoded = Vec::with_capacity(components.len());
+        for component in components {
+            if let Some(module) = component.module() {
+                if module.is_empty() {
+                    return Err(BatchGenerationError::EmptyBundleModule);
+                }
+                if !modules.insert(module) {
+                    return Err(BatchGenerationError::DuplicateBundleModule {
+                        module: module.to_owned(),
                     });
                 }
-                outcome.logos().clone()
             }
-        };
-        let rust = if kind == WholeEthosFileKind::Interface {
-            self.rust.emit_interface_with_type_paths(
-                &logos,
-                &self.names,
-                &self.interface_rust_roles,
-                &rust_types,
-            )?
-        } else {
-            self.rust
-                .emit_with_type_paths(&logos, &self.names, &rust_types)?
-        };
-        Ok(BatchGenerationOutcome {
-            kind,
-            version: decoded.ethos().header().version(),
-            logos,
-            rust,
-        })
+            decoded.push(DecodedBatchComponent {
+                module: component.module(),
+                decoded: self.ethos.decode(component.source(), &self.names)?,
+            });
+        }
+        let rust_types = self.rust_types.activate(&decoded, &self.names)?;
+        let provenance = BundleStorageProvenance::from_documents(
+            decoded
+                .iter()
+                .map(|component| component.decoded.ethos().clone()),
+            rust_types.external_storage().to_vec(),
+        )?;
+        let transformation = NexusTransformation::new()
+            .with_stream_lifecycle_identities(self.stream_lifecycles.clone())?;
+        decoded
+            .into_iter()
+            .map(|component| {
+                let kind = component.decoded.ethos().header().kind();
+                let logos = match kind {
+                    WholeEthosFileKind::Interface => transformation
+                        .lower_interface(component.decoded.ethos(), &self.interface_roles)?
+                        .logos()
+                        .clone(),
+                    WholeEthosFileKind::Nexus => transformation.lower(component.decoded.ethos())?,
+                    WholeEthosFileKind::Sema => transformation
+                        .lower_sema(component.decoded.ethos(), &provenance)?
+                        .logos()
+                        .clone(),
+                };
+                let rust = if kind == WholeEthosFileKind::Interface {
+                    let component_rust_types = rust_types.for_document(component.decoded.ethos());
+                    self.rust.emit_interface_with_type_paths(
+                        &logos,
+                        &self.names,
+                        &self.interface_rust_roles,
+                        &component_rust_types,
+                    )?
+                } else {
+                    let component_rust_types = rust_types.for_document(component.decoded.ethos());
+                    self.rust
+                        .emit_with_type_paths(&logos, &self.names, &component_rust_types)?
+                };
+                Ok(BatchGenerationOutcome {
+                    kind,
+                    version: component.decoded.ethos().header().version(),
+                    logos,
+                    rust,
+                })
+            })
+            .collect()
     }
+}
+
+struct DecodedBatchComponent<'source> {
+    module: Option<&'source str>,
+    decoded: DecodedEthos,
 }
 
 /// Successful partial or complete generation receipt.
@@ -147,18 +224,21 @@ impl BatchOutcomeReporting for BatchGenerationOutcome {
 /// Typed failure before any Rust artifact is returned.
 #[derive(Debug, thiserror::Error)]
 pub enum BatchGenerationError {
+    /// A bundle must contain at least one decoded component.
+    #[error("batch capsule contains no components")]
+    EmptyBundle,
+    /// A named component must expose a non-empty module spelling.
+    #[error("batch component module spelling must be non-empty")]
+    EmptyBundleModule,
+    /// More than one component exposed the same importable module spelling.
+    #[error("batch capsule repeats component module {module:?}")]
+    DuplicateBundleModule { module: String },
     /// Header, body, name, or structural source decoding failed.
     #[error("Ethos batch decode failed: {0}")]
     Decode(#[from] EthosDecodeError),
     /// Current typed Nomos projection refused the decoded document.
     #[error("Nomos batch projection failed: {0}")]
     Projection(#[from] NexusTransformationError),
-    /// An imported Sema record table requires another generated owner and this
-    /// complete-document generator refuses to emit a partial artifact.
-    #[error(
-        "Sema batch generation requires an owning generated record for {count} imported table(s)"
-    )]
-    SemaTablesRequireGeneratedOwner { count: usize },
     /// Rust projection failed without returning partial source.
     #[error("Rust batch emission failed: {0}")]
     Rust(#[from] rust_logos::Error),
@@ -177,6 +257,30 @@ pub enum BatchImportError {
         import_source: String,
         spelling: String,
     },
+    /// An import names a source component but the selected declaration does
+    /// not exist in that component.
+    #[error("bundle component {import_source}.{spelling} has no matching declaration")]
+    BundleImportNotDeclared {
+        import_source: String,
+        spelling: String,
+    },
+    /// A bundle-owned import was configured as externally archived, which
+    /// would bypass its complete bundle-local structural fingerprint.
+    #[error("bundle import {import_source}.{spelling} must not carry external storage provenance")]
+    BundleImportHasExternalProvenance {
+        import_source: String,
+        spelling: String,
+    },
+    /// An import outside the complete capsule lacked published producer
+    /// evidence for its storage shape.
+    #[error("external import {import_source}.{spelling} needs storage provenance")]
+    ExternalImportNeedsProvenance {
+        import_source: String,
+        spelling: String,
+    },
+    /// An import spelling decoded without an exact configured identity.
+    #[error("batch import spelling {spelling:?} has no configured identity")]
+    UnknownConfiguredIdentity { spelling: String },
 }
 
 /// JSON configuration for the CLI and build-script entry points.
@@ -206,8 +310,9 @@ struct StreamLifecycleConfiguration {
     termination_refusal: String,
 }
 
-/// One caller-owned binding from a Universal vocabulary identity to both its
-/// canonical Rust path and its complete external storage contract.
+/// One caller-owned Rust path binding. Bundle-owned imports carry a path only;
+/// genuinely external identities additionally carry owner/revision/archive
+/// provenance.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RustTypeConfiguration {
@@ -215,13 +320,23 @@ struct RustTypeConfiguration {
     #[serde(default)]
     import_source: Option<String>,
     path: Vec<String>,
-    storage_fingerprint: String,
+    #[serde(default)]
+    external_storage: Option<ExternalStorageConfiguration>,
+}
+
+/// Published provenance for an external archived type.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExternalStorageConfiguration {
+    source: String,
+    revision: String,
+    fingerprint: String,
 }
 
 struct ConfiguredRustTypeBinding {
     identity: VocabularyEncodedId,
     path: RustTypePath,
-    storage: SemaStorageTypeFingerprintMapping,
+    external_storage: Option<ExternalStorageProvenance>,
 }
 
 struct BatchRustTypeBindings {
@@ -237,9 +352,15 @@ impl BatchRustTypeBindings {
         let mut unowned = BTreeMap::new();
         let mut imported = BTreeMap::new();
         let mut identities = BTreeSet::new();
-        for entry in entries {
-            if let Some(import_source) = &entry.import_source {
-                let key = (import_source.clone(), entry.spelling.clone());
+        for RustTypeConfiguration {
+            spelling,
+            import_source,
+            path,
+            external_storage,
+        } in entries
+        {
+            if let Some(import_source) = &import_source {
+                let key = (import_source.clone(), spelling.clone());
                 if imported.contains_key(&key) {
                     return Err(BatchConfigurationError::DuplicateRustImport {
                         import_source: key.0,
@@ -247,23 +368,30 @@ impl BatchRustTypeBindings {
                     });
                 }
             }
-            let identity = names.require_universal(&entry.spelling)?;
+            let identity = names.require_universal(&spelling)?;
             if !identities.insert(identity.clone()) {
-                return Err(BatchConfigurationError::DuplicateRustTypeIdentity {
-                    spelling: entry.spelling,
-                });
+                return Err(BatchConfigurationError::DuplicateRustTypeIdentity { spelling });
             }
-            let path = RustTypePath::try_new(entry.path)?;
-            let fingerprint =
-                parse_storage_fingerprint(&entry.spelling, &entry.storage_fingerprint)?;
-            let storage = SemaStorageTypeFingerprintMapping::new(identity.clone(), fingerprint)?;
+            let path = RustTypePath::try_new(path)?;
+            let external_storage = external_storage
+                .map(|storage| {
+                    let fingerprint = parse_storage_fingerprint(&spelling, &storage.fingerprint)?;
+                    let owner = StorageProvenanceOwner::new(storage.source, storage.revision)
+                        .map_err(BatchConfigurationError::StorageProvenance)?;
+                    ExternalStorageProvenance::new(identity.clone(), fingerprint, owner)
+                        .map_err(BatchConfigurationError::StorageProvenance)
+                })
+                .transpose()?;
+            if import_source.is_none() && external_storage.is_none() {
+                return Err(BatchConfigurationError::UnownedRustTypeNeedsProvenance { spelling });
+            }
             let binding = ConfiguredRustTypeBinding {
                 identity: identity.clone(),
                 path,
-                storage,
+                external_storage,
             };
-            if let Some(source) = entry.import_source {
-                let key = (source, entry.spelling);
+            if let Some(source) = import_source {
+                let key = (source, spelling);
                 imported.insert(key, binding);
             } else {
                 unowned.insert(identity, binding);
@@ -274,23 +402,58 @@ impl BatchRustTypeBindings {
 
     fn activate(
         &self,
-        imports: &WholeEthosImports,
+        components: &[DecodedBatchComponent<'_>],
+        names: &BatchNameBindings,
     ) -> Result<ActiveRustTypeBindings, BatchImportError> {
+        let mut declarations = BTreeMap::new();
+        for component in components {
+            if let Some(module) = component.module {
+                declarations.insert(
+                    module,
+                    component_declaration_identities(component.decoded.ethos()),
+                );
+            }
+        }
         let mut active = BTreeMap::new();
         for binding in self.unowned.values() {
             active.insert(binding.identity.clone(), binding);
         }
-        for import in imports.entries() {
-            for spelling in import.names() {
-                let key = (import.source().to_owned(), spelling.clone());
-                let binding =
-                    self.imported
-                        .get(&key)
-                        .ok_or_else(|| BatchImportError::MissingMapping {
+        for component in components {
+            for import in component.decoded.imports().entries() {
+                for spelling in import.names() {
+                    let key = (import.source().to_owned(), spelling.clone());
+                    let binding = self.imported.get(&key).ok_or_else(|| {
+                        BatchImportError::MissingMapping {
                             import_source: import.source().to_owned(),
                             spelling: spelling.clone(),
+                        }
+                    })?;
+                    if let Some(declarations) = declarations.get(import.source()) {
+                        let identity = names.identity(spelling).ok_or_else(|| {
+                            BatchImportError::UnknownConfiguredIdentity {
+                                spelling: spelling.clone(),
+                            }
                         })?;
-                active.insert(binding.identity.clone(), binding);
+                        if !declarations.contains(identity) {
+                            return Err(BatchImportError::BundleImportNotDeclared {
+                                import_source: import.source().to_owned(),
+                                spelling: spelling.clone(),
+                            });
+                        }
+                        if binding.external_storage.is_some() {
+                            return Err(BatchImportError::BundleImportHasExternalProvenance {
+                                import_source: import.source().to_owned(),
+                                spelling: spelling.clone(),
+                            });
+                        }
+                    } else if binding.external_storage.is_none() {
+                        return Err(BatchImportError::ExternalImportNeedsProvenance {
+                            import_source: import.source().to_owned(),
+                            spelling: spelling.clone(),
+                        });
+                    }
+                    active.insert(binding.identity.clone(), binding);
+                }
             }
         }
         Ok(ActiveRustTypeBindings {
@@ -298,9 +461,9 @@ impl BatchRustTypeBindings {
                 .iter()
                 .map(|(identity, binding)| (identity.clone(), binding.path.clone()))
                 .collect(),
-            storage_fingerprints: active
+            external_storage: active
                 .into_values()
-                .map(|binding| binding.storage.clone())
+                .filter_map(|binding| binding.external_storage.clone())
                 .collect(),
         })
     }
@@ -308,18 +471,80 @@ impl BatchRustTypeBindings {
 
 struct ActiveRustTypeBindings {
     paths: BTreeMap<VocabularyEncodedId, RustTypePath>,
-    storage_fingerprints: Vec<SemaStorageTypeFingerprintMapping>,
+    external_storage: Vec<ExternalStorageProvenance>,
 }
 
 impl ActiveRustTypeBindings {
-    fn storage_fingerprints(&self) -> &[SemaStorageTypeFingerprintMapping] {
-        &self.storage_fingerprints
+    fn external_storage(&self) -> &[ExternalStorageProvenance] {
+        &self.external_storage
+    }
+
+    fn for_document(&self, document: &WholeEthos) -> ComponentRustTypeBindings<'_> {
+        ComponentRustTypeBindings {
+            paths: &self.paths,
+            declarations: component_declaration_identities(document),
+        }
     }
 }
 
-impl RustTypePathResolver for ActiveRustTypeBindings {
+fn component_declaration_identities(document: &WholeEthos) -> BTreeSet<VocabularyEncodedId> {
+    let mut declarations = BTreeSet::new();
+    match document.body() {
+        WholeEthosBody::Interface(body) => {
+            for input in body.inputs() {
+                declarations.insert(input.name().clone());
+            }
+            for output in body.outputs() {
+                declarations.insert(output.name().clone());
+            }
+            for refusal in body.refusals() {
+                declarations.insert(refusal.name().clone());
+            }
+            for item in body.types() {
+                if let Some(identity) = item_declaration_identity(item) {
+                    declarations.insert(identity.clone());
+                }
+            }
+        }
+        WholeEthosBody::Nexus(body) => {
+            for item in body.types() {
+                if let Some(identity) = item_declaration_identity(item) {
+                    declarations.insert(identity.clone());
+                }
+            }
+        }
+        WholeEthosBody::Sema(body) => {
+            for item in body.record_types() {
+                if let Some(identity) = item_declaration_identity(item) {
+                    declarations.insert(identity.clone());
+                }
+            }
+        }
+    }
+    declarations
+}
+
+fn item_declaration_identity(item: &WholeEthosItem) -> Option<&VocabularyEncodedId> {
+    match item {
+        WholeEthosItem::Newtype(newtype) => Some(newtype.name()),
+        WholeEthosItem::Struct(structure) => Some(structure.name()),
+        WholeEthosItem::Enumeration(enumeration) => Some(enumeration.name()),
+        WholeEthosItem::StreamInitiation(_) => None,
+    }
+}
+
+struct ComponentRustTypeBindings<'bindings> {
+    paths: &'bindings BTreeMap<VocabularyEncodedId, RustTypePath>,
+    declarations: BTreeSet<VocabularyEncodedId>,
+}
+
+impl RustTypePathResolver for ComponentRustTypeBindings<'_> {
     fn resolve_type_path(&self, encoded_id: &VocabularyEncodedId) -> Option<&RustTypePath> {
-        self.paths.get(encoded_id)
+        if self.declarations.contains(encoded_id) {
+            None
+        } else {
+            self.paths.get(encoded_id)
+        }
     }
 }
 
@@ -639,6 +864,10 @@ impl BatchNameBindings {
             .collect()
     }
 
+    fn identity(&self, spelling: &str) -> Option<&VocabularyEncodedId> {
+        self.by_spelling.get(spelling)
+    }
+
     fn insert_rust(
         &mut self,
         position: &'static str,
@@ -726,6 +955,10 @@ pub enum BatchConfigurationError {
         import_source: String,
         spelling: String,
     },
+    /// A type not imported from a source module is external to this capsule
+    /// and must carry its published storage provenance.
+    #[error("unowned Rust type {spelling:?} needs external storage provenance")]
+    UnownedRustTypeNeedsProvenance { spelling: String },
     /// An external storage fingerprint was not exactly 32 encoded bytes.
     #[error(
         "batch configuration storage fingerprint for {spelling:?} must contain 64 hexadecimal characters, found {found}"
@@ -736,6 +969,9 @@ pub enum BatchConfigurationError {
         "batch configuration storage fingerprint for {spelling:?} is not hexadecimal at byte offset {offset}"
     )]
     InvalidStorageFingerprintHex { spelling: String, offset: usize },
+    /// Typed Nomos provenance validation rejected a configured external type.
+    #[error("batch external storage provenance failed: {0}")]
+    StorageProvenance(NexusTransformationError),
     /// A prior names a spelling absent from the supplied identity view.
     #[error("batch configuration has no identity for required name {spelling:?}")]
     MissingName { spelling: String },

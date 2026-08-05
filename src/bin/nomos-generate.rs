@@ -3,7 +3,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use nomos_engine::batch::{
-    BatchConfiguration, BatchOutcomeReporting, OfflineBatchConfiguration, OfflineBatchGeneration,
+    BatchComponent, BatchConfiguration, BatchOutcomeReporting, OfflineBatchConfiguration,
+    OfflineBatchGeneration,
 };
 
 type AnyError = Box<dyn std::error::Error + Send + Sync>;
@@ -23,7 +24,10 @@ fn main() -> Result<(), AnyError> {
     let configuration = fs::read_to_string(configuration_path)?;
     let source = fs::read_to_string(source_path)?;
     let generator = BatchConfiguration::from_json(&configuration)?.prepare()?;
-    let outcome = generator.generate(&source)?;
+    let mut outcomes = generator.generate_bundle(&[BatchComponent::standalone(&source)])?;
+    let outcome = outcomes
+        .pop()
+        .ok_or("standalone batch generation returned no outcome")?;
     fs::write(output_path, outcome.rust())?;
     fs::write(outcome_path, outcome.report())?;
     Ok(())

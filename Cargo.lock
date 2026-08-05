@@ -220,7 +220,7 @@ dependencies = [
 [[package]]
 name = "core-nomos"
 version = "0.37.0"
-source = "git+https://github.com/LiGoldragon/core-nomos.git?rev=1580cac092885bfea6a8cd68d4e04b3a99eaf87d#1580cac092885bfea6a8cd68d4e04b3a99eaf87d"
+source = "git+https://github.com/LiGoldragon/core-nomos.git?rev=96b156c5f578f82e07c1640e15ef04338a00b65e#96b156c5f578f82e07c1640e15ef04338a00b65e"
 dependencies = [
  "content-identity 0.3.0",
  "content-identity 0.5.0",
