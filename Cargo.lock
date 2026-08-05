@@ -413,7 +413,7 @@ dependencies = [
 
 [[package]]
 name = "nomos-engine"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "content-identity 0.5.0",
  "core-ethos 0.23.0",
@@ -425,7 +425,7 @@ dependencies = [
  "name-table 0.3.0",
  "protos 0.4.0",
  "rkyv",
- "rust-logos 0.27.0",
+ "rust-logos 0.28.0",
  "sema-engine",
  "serde",
  "serde_json",
@@ -639,6 +639,26 @@ dependencies = [
 name = "rust-logos"
 version = "0.27.0"
 source = "git+https://github.com/LiGoldragon/rust-logos.git?rev=7366fff3f8adb2a78c6e66fd77bb267e6ee3e5d2#7366fff3f8adb2a78c6e66fd77bb267e6ee3e5d2"
+dependencies = [
+ "bs58",
+ "core-logos 0.24.0",
+ "name-table 0.1.0",
+ "name-table 0.3.0",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "raw-discovery 0.4.0 (git+https://github.com/LiGoldragon/raw-discovery.git?rev=2d4e2e00f2821c4e2893fa96028cef0ac76e9644)",
+ "rkyv",
+ "signal-sema-translator",
+ "structural-codec 0.19.0 (git+https://github.com/LiGoldragon/structural-codec.git?rev=fc6807f4365cde1551bbfe120520aec68245abdb)",
+ "syn 2.0.119",
+ "thiserror",
+]
+
+[[package]]
+name = "rust-logos"
+version = "0.28.0"
+source = "git+https://github.com/LiGoldragon/rust-logos.git?rev=7df0c3416b45bb1c459ed561e644f84b402f2415#7df0c3416b45bb1c459ed561e644f84b402f2415"
 dependencies = [
  "bs58",
  "core-logos 0.24.0",
