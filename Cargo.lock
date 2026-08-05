@@ -183,7 +183,7 @@ dependencies = [
 [[package]]
 name = "core-logos"
 version = "0.24.0"
-source = "git+https://github.com/LiGoldragon/core-logos.git?rev=c7bd55bb29f7c0e10212571d2b4a2f69aae4b35b#c7bd55bb29f7c0e10212571d2b4a2f69aae4b35b"
+source = "git+https://github.com/LiGoldragon/core-logos.git?rev=5733b586c72a3191e12b3e09cf01a4a6caba4242#5733b586c72a3191e12b3e09cf01a4a6caba4242"
 dependencies = [
  "content-identity 0.3.0",
  "content-identity 0.4.0",
@@ -220,7 +220,7 @@ dependencies = [
 [[package]]
 name = "core-nomos"
 version = "0.37.0"
-source = "git+https://github.com/LiGoldragon/core-nomos.git?rev=96b156c5f578f82e07c1640e15ef04338a00b65e#96b156c5f578f82e07c1640e15ef04338a00b65e"
+source = "git+https://github.com/LiGoldragon/core-nomos.git?rev=47ad2e576e00688e0c2615209c943171252289f0#47ad2e576e00688e0c2615209c943171252289f0"
 dependencies = [
  "content-identity 0.3.0",
  "content-identity 0.5.0",
@@ -638,7 +638,7 @@ dependencies = [
 [[package]]
 name = "rust-logos"
 version = "0.27.0"
-source = "git+https://github.com/LiGoldragon/rust-logos.git?rev=f3e4b7846ed032bc644f9a5b10a4ca8f3fb4c593#f3e4b7846ed032bc644f9a5b10a4ca8f3fb4c593"
+source = "git+https://github.com/LiGoldragon/rust-logos.git?rev=9b2a6ef7a14a7df77e8c7f165226169c85c79ccd#9b2a6ef7a14a7df77e8c7f165226169c85c79ccd"
 dependencies = [
  "bs58",
  "core-logos 0.24.0",

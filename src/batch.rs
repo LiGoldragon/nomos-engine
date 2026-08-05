@@ -15,8 +15,8 @@ use batch_core_logos::WholeLogos;
 use batch_core_nomos::{
     BundleStorageProvenance, ExternalStorageProvenance, InterfaceRoleIdentities,
     InterfaceStructuralTransformation, NexusStructuralTransformation, NexusTransformation,
-    NexusTransformationError, SemaStructuralTransformation, StorageProvenanceOwner,
-    StreamLifecycleIdentities,
+    NexusTransformationError, PreservedSemaFamilyProvenance, SemaStructuralTransformation,
+    StorageProvenanceOwner, StreamLifecycleIdentities,
 };
 use batch_structural_codec::{
     DeclarationAssignment, DecodeNameBindings, EncodedNameResolver, NameOccurrence,
@@ -95,6 +95,7 @@ pub struct PreparedBatchGenerator {
     rust: RustLogos,
     names: BatchNameBindings,
     rust_types: BatchRustTypeBindings,
+    preserved_sema_families: Vec<PreservedSemaFamilyProvenance>,
     interface_roles: InterfaceRoleIdentities,
     interface_rust_roles: InterfaceRustRoleIds,
     stream_lifecycles: Vec<StreamLifecycleIdentities>,
@@ -127,11 +128,12 @@ impl OfflineBatchGeneration for PreparedBatchGenerator {
             });
         }
         let rust_types = self.rust_types.activate(&decoded, &self.names)?;
-        let provenance = BundleStorageProvenance::from_documents(
+        let provenance = BundleStorageProvenance::from_documents_with_preserved_families(
             decoded
                 .iter()
                 .map(|component| component.decoded.ethos().clone()),
             rust_types.external_storage().to_vec(),
+            self.preserved_sema_families.clone(),
         )?;
         let transformation = NexusTransformation::new()
             .with_stream_lifecycle_identities(self.stream_lifecycles.clone())?;
@@ -287,6 +289,8 @@ pub struct BatchConfiguration {
     #[serde(default)]
     rust_types: Vec<RustTypeConfiguration>,
     #[serde(default)]
+    preserved_sema_families: Vec<PreservedSemaFamilyConfiguration>,
+    #[serde(default)]
     stream_lifecycles: Vec<StreamLifecycleConfiguration>,
     names: Vec<NameConfiguration>,
 }
@@ -324,6 +328,24 @@ struct ExternalStorageConfiguration {
     source: String,
     revision: String,
     fingerprint: String,
+}
+
+/// One explicit adoption proof for a currently catalogued Spirit-v14 physical
+/// family. Every coordinate is parsed here and revalidated by Core Nomos; this
+/// configuration never acts as a generic hash or descriptor override.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PreservedSemaFamilyConfiguration {
+    table: String,
+    record_archive_type: String,
+    key_archive_type: String,
+    physical_table_name: String,
+    physical_family_name: String,
+    physical_schema_hash: String,
+    source_spirit_revision: String,
+    store_schema: u64,
+    record_layout_fingerprint: String,
+    key_layout_fingerprint: String,
 }
 
 struct ConfiguredRustTypeBinding {
@@ -556,6 +578,43 @@ fn parse_storage_fingerprint(
     Ok(fingerprint)
 }
 
+fn preserved_sema_families(
+    entries: Vec<PreservedSemaFamilyConfiguration>,
+    names: &BatchNameBindings,
+) -> Result<Vec<PreservedSemaFamilyProvenance>, BatchConfigurationError> {
+    entries
+        .into_iter()
+        .map(|entry| {
+            let table = names.require_universal(&entry.table)?;
+            let record = names.require_universal(&entry.record_archive_type)?;
+            let key = names.require_universal(&entry.key_archive_type)?;
+            let schema_hash = parse_storage_fingerprint(
+                &entry.physical_family_name,
+                &entry.physical_schema_hash,
+            )?;
+            let record_layout = parse_storage_fingerprint(
+                &entry.record_archive_type,
+                &entry.record_layout_fingerprint,
+            )?;
+            let key_layout =
+                parse_storage_fingerprint(&entry.key_archive_type, &entry.key_layout_fingerprint)?;
+            PreservedSemaFamilyProvenance::new(
+                table,
+                record,
+                key,
+                entry.physical_table_name,
+                entry.physical_family_name,
+                schema_hash,
+                entry.source_spirit_revision,
+                entry.store_schema,
+                record_layout,
+                key_layout,
+            )
+            .map_err(BatchConfigurationError::StorageProvenance)
+        })
+        .collect()
+}
+
 // Trait exception — too trivial: serde parsing convenience only; validation
 // and construction live under OfflineBatchConfiguration.
 impl BatchConfiguration {
@@ -592,6 +651,8 @@ impl OfflineBatchConfiguration for BatchConfiguration {
         let interface_rust_roles =
             InterfaceRustRoleIds::new(input_role, output_role, refusal_role)?;
         let rust_types = BatchRustTypeBindings::try_new(self.rust_types, &names)?;
+        let preserved_sema_families =
+            preserved_sema_families(self.preserved_sema_families, &names)?;
         let stream_lifecycles = self
             .stream_lifecycles
             .into_iter()
@@ -614,6 +675,7 @@ impl OfflineBatchConfiguration for BatchConfiguration {
             rust: RustLogos::new(rust_vocabulary),
             names,
             rust_types,
+            preserved_sema_families,
             interface_roles,
             interface_rust_roles,
             stream_lifecycles,
