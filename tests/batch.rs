@@ -16,7 +16,7 @@ const BUNDLE_INTERFACE: &str =
     "Interface.1\n[]\n{\n  []\n  []\n  []\n  [Key.Integer Entry.{Integer}]\n}\n";
 const BUNDLE_SEMA: &str = "Sema.1\n[interface.{Entry Key}]\n{\n  []\n  [records.{Entry Key}]\n}\n";
 
-fn generator() -> PreparedBatchGenerator {
+fn generator_configuration() -> Value {
     let source_names = [
         "Integer",
         "Vector",
@@ -55,8 +55,7 @@ fn generator() -> PreparedBatchGenerator {
             Some(entry)
         })
         .collect();
-    BatchConfiguration::from_json(
-        &json!({
+    json!({
             "grammar": grammar_configuration(),
             "rust_grammar": rust_grammar_configuration(),
             "priors": {
@@ -112,12 +111,61 @@ fn generator() -> PreparedBatchGenerator {
                 }
             ],
             "names": names,
-        })
-        .to_string(),
-    )
-    .expect("configuration JSON should decode")
-    .prepare()
-    .expect("configuration should seat without allocating identities")
+    })
+}
+
+fn generator() -> PreparedBatchGenerator {
+    BatchConfiguration::from_json(&generator_configuration().to_string())
+        .expect("configuration JSON should decode")
+        .prepare()
+        .expect("configuration should seat without allocating identities")
+}
+
+#[test]
+fn external_storage_successor_configuration_requires_complete_abi_evidence() {
+    let mut configuration = generator_configuration();
+    configuration["rust_types"][1]["external_storage"]["source"] = json!("test://compiled-domain");
+    configuration["rust_types"][1]["external_storage"]["revision"] = json!("compiled-revision");
+    configuration["rust_types"][1]["external_storage"]["successor"] = json!({
+        "physical_owner": {
+            "source": "test://physical-domain",
+            "revision": "physical-revision",
+        },
+        "compiled_owner": {
+            "source": "test://compiled-domain",
+            "revision": "compiled-revision",
+        },
+        "type_identities": ["Domain"],
+        "proof_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "evidence_revision": "proof-revision",
+        "archive_abi": {
+            "layout": true,
+            "variant_order": true,
+            "discriminants": true,
+            "size": true,
+            "alignment": true,
+            "archive_bytes": true,
+        },
+    });
+    BatchConfiguration::from_json(&configuration.to_string())
+        .expect("successor configuration syntax")
+        .prepare()
+        .expect("complete successor evidence is accepted");
+
+    configuration["rust_types"][1]["external_storage"]["successor"]["archive_abi"]["archive_bytes"] =
+        json!(false);
+    assert!(matches!(
+        BatchConfiguration::from_json(&configuration.to_string())
+            .expect("incomplete successor configuration syntax")
+            .prepare(),
+        Err(
+            nomos_engine::batch::BatchConfigurationError::StorageProvenance(
+                batch_core_nomos::NexusTransformationError::ArchiveAbiCheckNotProven {
+                    check: "archive bytes"
+                }
+            )
+        )
+    ));
 }
 
 #[test]

@@ -13,10 +13,11 @@ use batch_core_ethos::{
 };
 use batch_core_logos::WholeLogos;
 use batch_core_nomos::{
-    BundleStorageProvenance, ExternalStorageProvenance, InterfaceRoleIdentities,
-    InterfaceStructuralTransformation, NexusStructuralTransformation, NexusTransformation,
-    NexusTransformationError, PreservedSemaFamilyProvenance, SemaStructuralTransformation,
-    StorageProvenanceOwner, StreamLifecycleIdentities,
+    ArchiveAbiEquivalenceChecks, BundleStorageProvenance, ExternalStorageProvenance,
+    ExternalStorageSuccessorEvidence, InterfaceRoleIdentities, InterfaceStructuralTransformation,
+    NexusStructuralTransformation, NexusTransformation, NexusTransformationError,
+    PreservedSemaFamilyProvenance, SemaStructuralTransformation, StorageProvenanceOwner,
+    StreamLifecycleIdentities,
 };
 use batch_structural_codec::{
     DeclarationAssignment, DecodeNameBindings, EncodedNameResolver, NameOccurrence,
@@ -328,6 +329,43 @@ struct ExternalStorageConfiguration {
     source: String,
     revision: String,
     fingerprint: String,
+    #[serde(default)]
+    successor: Option<ExternalStorageSuccessorConfiguration>,
+}
+
+/// One sealed archive-ABI adoption from the physical producer revision to the
+/// exact revision compiled by this batch. This is provenance only: it does not
+/// add a decoder, alias, or alternate storage fingerprint.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExternalStorageSuccessorConfiguration {
+    physical_owner: StorageProvenanceOwnerConfiguration,
+    compiled_owner: StorageProvenanceOwnerConfiguration,
+    type_identities: Vec<String>,
+    proof_digest: String,
+    evidence_revision: String,
+    archive_abi: ArchiveAbiEquivalenceConfiguration,
+}
+
+/// Exact revision-bearing owner evidence kept independently for the physical
+/// descriptor and the currently compiled producer.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StorageProvenanceOwnerConfiguration {
+    source: String,
+    revision: String,
+}
+
+/// The closed proof predicate set required for an ABI-preserving repin.
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ArchiveAbiEquivalenceConfiguration {
+    layout: bool,
+    variant_order: bool,
+    discriminants: bool,
+    size: bool,
+    alignment: bool,
+    archive_bytes: bool,
 }
 
 /// One explicit adoption proof for a currently catalogued Spirit-v14 physical
@@ -393,8 +431,22 @@ impl BatchRustTypeBindings {
                     let fingerprint = parse_storage_fingerprint(&spelling, &storage.fingerprint)?;
                     let owner = StorageProvenanceOwner::new(storage.source, storage.revision)
                         .map_err(BatchConfigurationError::StorageProvenance)?;
-                    ExternalStorageProvenance::new(identity.clone(), fingerprint, owner)
-                        .map_err(BatchConfigurationError::StorageProvenance)
+                    match storage.successor {
+                        Some(successor) => {
+                            let successor = successor.into_evidence(names, &spelling)?;
+                            ExternalStorageProvenance::with_successor(
+                                identity.clone(),
+                                fingerprint,
+                                owner,
+                                successor,
+                            )
+                            .map_err(BatchConfigurationError::StorageProvenance)
+                        }
+                        None => {
+                            ExternalStorageProvenance::new(identity.clone(), fingerprint, owner)
+                                .map_err(BatchConfigurationError::StorageProvenance)
+                        }
+                    }
                 })
                 .transpose()?;
             let binding = ConfiguredRustTypeBinding {
@@ -473,6 +525,45 @@ impl BatchRustTypeBindings {
                 .filter_map(|binding| binding.external_storage.clone())
                 .collect(),
         })
+    }
+}
+
+impl ExternalStorageSuccessorConfiguration {
+    fn into_evidence(
+        self,
+        names: &BatchNameBindings,
+        spelling: &str,
+    ) -> Result<ExternalStorageSuccessorEvidence, BatchConfigurationError> {
+        let physical_owner =
+            StorageProvenanceOwner::new(self.physical_owner.source, self.physical_owner.revision)
+                .map_err(BatchConfigurationError::StorageProvenance)?;
+        let compiled_owner =
+            StorageProvenanceOwner::new(self.compiled_owner.source, self.compiled_owner.revision)
+                .map_err(BatchConfigurationError::StorageProvenance)?;
+        let type_identities = self
+            .type_identities
+            .into_iter()
+            .map(|type_spelling| names.require_universal(&type_spelling))
+            .collect::<Result<Vec<_>, _>>()?;
+        let proof_digest = parse_successor_proof_digest(spelling, &self.proof_digest)?;
+        let checks = ArchiveAbiEquivalenceChecks::new(
+            self.archive_abi.layout,
+            self.archive_abi.variant_order,
+            self.archive_abi.discriminants,
+            self.archive_abi.size,
+            self.archive_abi.alignment,
+            self.archive_abi.archive_bytes,
+        )
+        .map_err(BatchConfigurationError::StorageProvenance)?;
+        ExternalStorageSuccessorEvidence::new(
+            physical_owner,
+            compiled_owner,
+            type_identities,
+            proof_digest,
+            self.evidence_revision,
+            checks,
+        )
+        .map_err(BatchConfigurationError::StorageProvenance)
     }
 }
 
@@ -576,6 +667,29 @@ fn parse_storage_fingerprint(
         })?;
     }
     Ok(fingerprint)
+}
+
+fn parse_successor_proof_digest(
+    spelling: &str,
+    encoded: &str,
+) -> Result<[u8; 32], BatchConfigurationError> {
+    if encoded.len() != 64 {
+        return Err(BatchConfigurationError::InvalidSuccessorProofDigestLength {
+            spelling: spelling.to_owned(),
+            found: encoded.len(),
+        });
+    }
+    let mut digest = [0_u8; 32];
+    for (index, byte) in digest.iter_mut().enumerate() {
+        let start = index * 2;
+        *byte = u8::from_str_radix(&encoded[start..start + 2], 16).map_err(|_| {
+            BatchConfigurationError::InvalidSuccessorProofDigestHex {
+                spelling: spelling.to_owned(),
+                offset: start,
+            }
+        })?;
+    }
+    Ok(digest)
 }
 
 fn preserved_sema_families(
@@ -1012,6 +1126,16 @@ pub enum BatchConfigurationError {
         "batch configuration storage fingerprint for {spelling:?} is not hexadecimal at byte offset {offset}"
     )]
     InvalidStorageFingerprintHex { spelling: String, offset: usize },
+    /// A successor proof digest was not exactly 32 encoded bytes.
+    #[error(
+        "batch configuration successor proof digest for {spelling:?} must contain 64 hexadecimal characters, found {found}"
+    )]
+    InvalidSuccessorProofDigestLength { spelling: String, found: usize },
+    /// A successor proof digest contained a non-hexadecimal byte pair.
+    #[error(
+        "batch configuration successor proof digest for {spelling:?} is not hexadecimal at byte offset {offset}"
+    )]
+    InvalidSuccessorProofDigestHex { spelling: String, offset: usize },
     /// Typed Nomos provenance validation rejected a configured external type.
     #[error("batch external storage provenance failed: {0}")]
     StorageProvenance(NexusTransformationError),
