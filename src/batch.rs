@@ -271,13 +271,6 @@ pub enum BatchImportError {
         import_source: String,
         spelling: String,
     },
-    /// An import outside the complete capsule lacked published producer
-    /// evidence for its storage shape.
-    #[error("external import {import_source}.{spelling} needs storage provenance")]
-    ExternalImportNeedsProvenance {
-        import_source: String,
-        spelling: String,
-    },
     /// An import spelling decoded without an exact configured identity.
     #[error("batch import spelling {spelling:?} has no configured identity")]
     UnknownConfiguredIdentity { spelling: String },
@@ -382,9 +375,6 @@ impl BatchRustTypeBindings {
                         .map_err(BatchConfigurationError::StorageProvenance)
                 })
                 .transpose()?;
-            if import_source.is_none() && external_storage.is_none() {
-                return Err(BatchConfigurationError::UnownedRustTypeNeedsProvenance { spelling });
-            }
             let binding = ConfiguredRustTypeBinding {
                 identity: identity.clone(),
                 path,
@@ -446,11 +436,6 @@ impl BatchRustTypeBindings {
                                 spelling: spelling.clone(),
                             });
                         }
-                    } else if binding.external_storage.is_none() {
-                        return Err(BatchImportError::ExternalImportNeedsProvenance {
-                            import_source: import.source().to_owned(),
-                            spelling: spelling.clone(),
-                        });
                     }
                     active.insert(binding.identity.clone(), binding);
                 }
@@ -955,10 +940,6 @@ pub enum BatchConfigurationError {
         import_source: String,
         spelling: String,
     },
-    /// A type not imported from a source module is external to this capsule
-    /// and must carry its published storage provenance.
-    #[error("unowned Rust type {spelling:?} needs external storage provenance")]
-    UnownedRustTypeNeedsProvenance { spelling: String },
     /// An external storage fingerprint was not exactly 32 encoded bytes.
     #[error(
         "batch configuration storage fingerprint for {spelling:?} must contain 64 hexadecimal characters, found {found}"
