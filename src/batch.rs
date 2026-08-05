@@ -8,37 +8,36 @@ use std::fmt::Write as _;
 
 use batch_core_ethos::{
     EthosCodec, EthosCodecBuildError, EthosDecodeError, EthosGrammarError, EthosGrammarIdentities,
-    EthosGrammarIds, WholeEthosBody, WholeEthosBuiltinPriorError, WholeEthosBuiltinPriors,
-    WholeEthosFileKind, WholeEthosImports, WholeEthosOperatorApplication, WholeEthosTable,
+    EthosGrammarIds, WholeEthosBuiltinPriorError, WholeEthosBuiltinPriors, WholeEthosFileKind,
+    WholeEthosImports,
 };
 use batch_core_logos::WholeLogos;
 use batch_core_nomos::{
     InterfaceRoleIdentities, InterfaceStructuralTransformation, NexusStructuralTransformation,
     NexusTransformation, NexusTransformationError, SemaStorageTypeFingerprintMapping,
-    SemaStructuralTransformation,
+    SemaStructuralTransformation, StreamLifecycleIdentities,
 };
-use name_table::{LocalEncodedId, Name};
-use rust_logos::{
-    FixtureRustVocabulary, FixtureRustVocabularyIds, InterfaceRustRoleIds, RustEncodedIdCodec,
-    RustLogos, RustTypePath, RustTypePathResolver,
-};
-use serde::Deserialize;
-use signal_sema_translator::{VocabularyEncodedId, VocabularyRoot};
-use structural_codec::{
+use batch_structural_codec::{
     DeclarationAssignment, DecodeNameBindings, EncodedNameResolver, NameOccurrence,
     ResolvedReference,
 };
+use name_table::{LocalEncodedId, Name};
+use rust_logos::{
+    FixtureRustVocabulary, FixtureRustVocabularyIds, InterfaceRustRoleIds, RustLogos, RustTypePath,
+    RustTypePathResolver,
+};
+use serde::Deserialize;
+use signal_sema_translator::{VocabularyEncodedId, VocabularyRoot};
 
 /// Execute one complete offline batch generation request.
 pub trait OfflineBatchGeneration {
-    /// Decode the source, project every currently supported declaration, emit
-    /// Rust, and return every deliberately deferred construct alongside it.
+    /// Decode the source, project every declaration, and emit complete Rust.
     fn generate(&self, source: &str) -> Result<BatchGenerationOutcome, BatchGenerationError>;
 }
 
 /// Stable human-readable projection of a typed batch receipt.
 pub trait BatchOutcomeReporting {
-    /// Render the source kind, artifact breadth, and every deferred construct.
+    /// Render the source kind, version, and complete artifact breadth.
     fn report(&self) -> String;
 }
 
@@ -56,6 +55,7 @@ pub struct PreparedBatchGenerator {
     rust_types: BatchRustTypeBindings,
     interface_roles: InterfaceRoleIdentities,
     interface_rust_roles: InterfaceRustRoleIds,
+    stream_lifecycles: Vec<StreamLifecycleIdentities>,
 }
 
 impl OfflineBatchGeneration for PreparedBatchGenerator {
@@ -63,84 +63,43 @@ impl OfflineBatchGeneration for PreparedBatchGenerator {
         let decoded = self.ethos.decode(source, &self.names)?;
         let rust_types = self.rust_types.activate(decoded.imports())?;
         let transformation = NexusTransformation::new()
-            .with_storage_fingerprints(rust_types.storage_fingerprints().to_vec())?;
-        let projection = transformation.project(decoded.ethos(), &self.interface_roles)?;
+            .with_storage_fingerprints(rust_types.storage_fingerprints().to_vec())?
+            .with_stream_lifecycle_identities(self.stream_lifecycles.clone())?;
         let kind = decoded.ethos().header().kind();
+        let logos = match kind {
+            WholeEthosFileKind::Interface => transformation
+                .lower_interface(decoded.ethos(), &self.interface_roles)?
+                .logos()
+                .clone(),
+            WholeEthosFileKind::Nexus => transformation.lower(decoded.ethos())?,
+            WholeEthosFileKind::Sema => {
+                let outcome = transformation.lower_sema(decoded.ethos())?;
+                if !outcome.deferred_tables().is_empty() {
+                    return Err(BatchGenerationError::SemaTablesRequireGeneratedOwner {
+                        count: outcome.deferred_tables().len(),
+                    });
+                }
+                outcome.logos().clone()
+            }
+        };
         let rust = if kind == WholeEthosFileKind::Interface {
             self.rust.emit_interface_with_type_paths(
-                &projection.logos,
+                &logos,
                 &self.names,
                 &self.interface_rust_roles,
                 &rust_types,
             )?
         } else {
             self.rust
-                .emit_with_type_paths(&projection.logos, &self.names, &rust_types)?
+                .emit_with_type_paths(&logos, &self.names, &rust_types)?
         };
         Ok(BatchGenerationOutcome {
             kind,
             version: decoded.ethos().header().version(),
-            logos: projection.logos,
+            logos,
             rust,
-            deferred: projection.deferred,
         })
     }
-}
-
-trait CurrentBatchProjection {
-    fn project(
-        &self,
-        ethos: &batch_core_ethos::WholeEthos,
-        interface_roles: &InterfaceRoleIdentities,
-    ) -> Result<BatchProjection, NexusTransformationError>;
-}
-
-impl CurrentBatchProjection for NexusTransformation {
-    fn project(
-        &self,
-        ethos: &batch_core_ethos::WholeEthos,
-        interface_roles: &InterfaceRoleIdentities,
-    ) -> Result<BatchProjection, NexusTransformationError> {
-        match ethos.body() {
-            WholeEthosBody::Nexus(_) => Ok(BatchProjection {
-                logos: self.lower(ethos)?,
-                deferred: Vec::new(),
-            }),
-            WholeEthosBody::Interface(_) => {
-                let outcome = self.lower_interface(ethos, interface_roles)?;
-                Ok(BatchProjection {
-                    logos: outcome.logos().clone(),
-                    deferred: outcome
-                        .deferred_operator_applications()
-                        .iter()
-                        .cloned()
-                        .map(
-                            |application| DeferredBatchConstruct::InterfaceOperatorApplication {
-                                application,
-                            },
-                        )
-                        .collect(),
-                })
-            }
-            WholeEthosBody::Sema(_) => {
-                let outcome = self.lower_sema(ethos)?;
-                Ok(BatchProjection {
-                    logos: outcome.logos().clone(),
-                    deferred: outcome
-                        .deferred_tables()
-                        .iter()
-                        .cloned()
-                        .map(|table| DeferredBatchConstruct::SemaTable { table })
-                        .collect(),
-                })
-            }
-        }
-    }
-}
-
-struct BatchProjection {
-    logos: WholeLogos,
-    deferred: Vec<DeferredBatchConstruct>,
 }
 
 /// Successful partial or complete generation receipt.
@@ -149,7 +108,6 @@ pub struct BatchGenerationOutcome {
     version: u64,
     logos: WholeLogos,
     rust: String,
-    deferred: Vec<DeferredBatchConstruct>,
 }
 
 // Trait exception — too trivial: read-only receipt accessors.
@@ -169,14 +127,9 @@ impl BatchGenerationOutcome {
         &self.logos
     }
 
-    /// Emitted Rust artifact. Its presence does not imply deferred semantics.
+    /// Complete emitted Rust artifact.
     pub fn rust(&self) -> &str {
         &self.rust
-    }
-
-    /// Constructs intentionally outside the current projection breadth.
-    pub fn deferred(&self) -> &[DeferredBatchConstruct] {
-        &self.deferred
     }
 }
 
@@ -187,47 +140,7 @@ impl BatchOutcomeReporting for BatchGenerationOutcome {
         writeln!(report, "version {}", self.version).expect("String writes cannot fail");
         writeln!(report, "emitted-items {}", self.logos.items().len())
             .expect("String writes cannot fail");
-        writeln!(report, "deferred {}", self.deferred.len()).expect("String writes cannot fail");
-        for deferred in &self.deferred {
-            deferred.write_report(&mut report);
-        }
         report
-    }
-}
-
-/// One source construct whose semantics are not claimed by the current batch path.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum DeferredBatchConstruct {
-    /// The application remains fully typed in WholeEthos; Stream semantics are Slice 6.
-    InterfaceOperatorApplication {
-        application: WholeEthosOperatorApplication,
-    },
-    /// A valid table names an imported record type not emitted by this document.
-    SemaTable { table: WholeEthosTable },
-}
-
-impl DeferredBatchConstruct {
-    fn write_report(&self, report: &mut String) {
-        match self {
-            Self::InterfaceOperatorApplication { application } => {
-                writeln!(
-                    report,
-                    "deferred interface-operator-application {} {} fields={}",
-                    RustEncodedIdCodec::encode(application.operator()),
-                    RustEncodedIdCodec::encode(application.name()),
-                    application.fields().len(),
-                )
-                .expect("String writes cannot fail");
-            }
-            Self::SemaTable { table } => {
-                writeln!(
-                    report,
-                    "deferred sema-table {}",
-                    RustEncodedIdCodec::encode(table.name())
-                )
-                .expect("String writes cannot fail");
-            }
-        }
     }
 }
 
@@ -240,6 +153,12 @@ pub enum BatchGenerationError {
     /// Current typed Nomos projection refused the decoded document.
     #[error("Nomos batch projection failed: {0}")]
     Projection(#[from] NexusTransformationError),
+    /// An imported Sema record table requires another generated owner and this
+    /// complete-document generator refuses to emit a partial artifact.
+    #[error(
+        "Sema batch generation requires an owning generated record for {count} imported table(s)"
+    )]
+    SemaTablesRequireGeneratedOwner { count: usize },
     /// Rust projection failed without returning partial source.
     #[error("Rust batch emission failed: {0}")]
     Rust(#[from] rust_logos::Error),
@@ -270,7 +189,21 @@ pub struct BatchConfiguration {
     interface_roles: InterfaceRoleConfiguration,
     #[serde(default)]
     rust_types: Vec<RustTypeConfiguration>,
+    #[serde(default)]
+    stream_lifecycles: Vec<StreamLifecycleConfiguration>,
     names: Vec<NameConfiguration>,
+}
+
+/// Caller-authored generated identities for one strict stream lifecycle.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StreamLifecycleConfiguration {
+    stream: String,
+    initiation_input: String,
+    handle: String,
+    initiation_refusal: String,
+    termination_input: String,
+    termination_refusal: String,
 }
 
 /// One caller-owned binding from a Universal vocabulary identity to both its
@@ -435,8 +368,8 @@ impl OfflineBatchConfiguration for BatchConfiguration {
         for spelling in self.priors.application_heads {
             priors = priors.with_application_head(names.require_universal(&spelling)?)?;
         }
-        for spelling in self.priors.object_application_heads {
-            priors = priors.with_object_application_head(names.require_universal(&spelling)?)?;
+        if let Some(spelling) = self.priors.stream_transformer {
+            priors = priors.with_stream_transformer(names.require_universal(&spelling)?)?;
         }
         let input_role = names.require_universal(&self.interface_roles.input)?;
         let output_role = names.require_universal(&self.interface_roles.output)?;
@@ -449,6 +382,21 @@ impl OfflineBatchConfiguration for BatchConfiguration {
         let interface_rust_roles =
             InterfaceRustRoleIds::new(input_role, output_role, refusal_role)?;
         let rust_types = BatchRustTypeBindings::try_new(self.rust_types, &names)?;
+        let stream_lifecycles = self
+            .stream_lifecycles
+            .into_iter()
+            .map(|entry| {
+                StreamLifecycleIdentities::new(
+                    names.require_universal(&entry.stream)?,
+                    names.require_universal(&entry.initiation_input)?,
+                    names.require_universal(&entry.handle)?,
+                    names.require_universal(&entry.initiation_refusal)?,
+                    names.require_universal(&entry.termination_input)?,
+                    names.require_universal(&entry.termination_refusal)?,
+                )
+                .map_err(BatchConfigurationError::InterfaceProjection)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let rust_ids = self.rust_grammar.seat(&mut names)?;
         let rust_vocabulary = FixtureRustVocabulary::seal(rust_ids, &names)?;
         Ok(PreparedBatchGenerator {
@@ -458,6 +406,7 @@ impl OfflineBatchConfiguration for BatchConfiguration {
             rust_types,
             interface_roles,
             interface_rust_roles,
+            stream_lifecycles,
         })
     }
 }
@@ -494,7 +443,7 @@ struct PriorConfiguration {
     #[serde(default)]
     application_heads: Vec<String>,
     #[serde(default)]
-    object_application_heads: Vec<String>,
+    stream_transformer: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -527,9 +476,7 @@ struct EthosGrammarConfiguration {
     item: Vec<u16>,
     variant: Vec<u16>,
     type_reference: Vec<u16>,
-    operator_payload: Vec<u16>,
     trait_declaration: Vec<u16>,
-    method: Vec<u16>,
     table: Vec<u16>,
 }
 
@@ -564,9 +511,7 @@ impl EthosGrammarConfiguration {
             item: universal_id("grammar.item", self.item)?,
             variant: universal_id("grammar.variant", self.variant)?,
             type_reference: universal_id("grammar.type_reference", self.type_reference)?,
-            operator_payload: universal_id("grammar.operator_payload", self.operator_payload)?,
             trait_declaration: universal_id("grammar.trait_declaration", self.trait_declaration)?,
-            method: universal_id("grammar.method", self.method)?,
             table: universal_id("grammar.table", self.table)?,
         })
     }

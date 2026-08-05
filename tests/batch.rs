@@ -1,21 +1,42 @@
 use batch_core_ethos::{EthosDecodeError, WholeEthosFileKind};
 use nomos_engine::batch::{
     BatchConfiguration, BatchGenerationError, BatchImportError, BatchOutcomeReporting,
-    DeferredBatchConstruct, OfflineBatchConfiguration, OfflineBatchGeneration,
-    PreparedBatchGenerator,
+    OfflineBatchConfiguration, OfflineBatchGeneration, PreparedBatchGenerator,
 };
 use serde_json::{Value, json};
 
-const INTERFACE: &str = "Interface.1\n[]\n{\n  [Command.Text]\n  [Event.Text]\n  [Rejected.{Reason Text}]\n  [Text.Integer Stream.Feed.{Command Event Rejected}]\n}\n";
+const INTERFACE: &str = "Interface.1\n[]\n{\n  [Command.String]\n  [Event.String]\n  [Rejected.{Reason String}]\n  [String.Integer Observer.Stream.(Command Event)]\n}\n";
 const NEXUS: &str = "Nexus.1\n[]\n{\n  [Decision.[Accepted Rejected.Reason]]\n  []\n}\n";
 const SEMA: &str = "Sema.1\n[]\n{\n  [Stored.{Integer}]\n  [records.{Stored Integer}]\n}\n";
 const IMPORTED_SEMA: &str =
     "Sema.1\n[signal-domain.{Domain}]\n{\n  [Stored.{Integer}]\n  [records.{Stored Domain}]\n}\n";
+const IMPORTED_RECORD_SEMA: &str =
+    "Sema.1\n[signal-domain.{Domain}]\n{\n  []\n  [records.{Domain Integer}]\n}\n";
 
 fn generator() -> PreparedBatchGenerator {
     let source_names = [
-        "Integer", "Vector", "Input", "Output", "Refusal", "Command", "Text", "Event", "Rejected",
-        "Reason", "Stream", "Feed", "Decision", "Accepted", "Stored", "records", "Domain",
+        "Integer",
+        "Vector",
+        "Input",
+        "Output",
+        "Refusal",
+        "Command",
+        "String",
+        "Event",
+        "Rejected",
+        "Reason",
+        "Stream",
+        "Observer",
+        "ObserverStreamInitiation",
+        "ObserverStreamHandle",
+        "ObserverStreamInitiationRefusal",
+        "ObserverStreamTermination",
+        "ObserverStreamTerminationRefusal",
+        "Decision",
+        "Accepted",
+        "Stored",
+        "records",
+        "Domain",
     ];
     let names: Vec<Value> = source_names
         .into_iter()
@@ -37,7 +58,7 @@ fn generator() -> PreparedBatchGenerator {
                 "integer": "Integer",
                 "vector": "Vector",
                 "application_heads": ["Vector"],
-                "object_application_heads": ["Stream"],
+                "stream_transformer": "Stream",
             },
             "interface_roles": {
                 "input": "Input",
@@ -56,6 +77,16 @@ fn generator() -> PreparedBatchGenerator {
                     "path": ["signal_domain", "Domain"],
                     "storage_fingerprint": "0202020202020202020202020202020202020202020202020202020202020202",
                 },
+            ],
+            "stream_lifecycles": [
+                {
+                    "stream": "Observer",
+                    "initiation_input": "ObserverStreamInitiation",
+                    "handle": "ObserverStreamHandle",
+                    "initiation_refusal": "ObserverStreamInitiationRefusal",
+                    "termination_input": "ObserverStreamTermination",
+                    "termination_refusal": "ObserverStreamTerminationRefusal",
+                }
             ],
             "names": names,
         })
@@ -91,12 +122,13 @@ fn imported_types_require_exact_caller_owned_paths_and_storage_contracts() {
         Err(error) => panic!("unexpected missing-import error: {error}"),
         Ok(_) => panic!("unconfigured imported Domain unexpectedly generated"),
     }
-}
 
-fn is_interface_operator_deferral(construct: &DeferredBatchConstruct) -> bool {
-    match construct {
-        DeferredBatchConstruct::InterfaceOperatorApplication { .. } => true,
-        DeferredBatchConstruct::SemaTable { .. } => false,
+    match generator.generate(IMPORTED_RECORD_SEMA) {
+        Err(BatchGenerationError::SemaTablesRequireGeneratedOwner { count }) => {
+            assert_eq!(count, 1);
+        }
+        Err(error) => panic!("unexpected imported-record Sema refusal: {error}"),
+        Ok(_) => panic!("partial imported-record Sema output unexpectedly generated"),
     }
 }
 
@@ -121,9 +153,7 @@ fn grammar_configuration() -> Value {
         "item": [17],
         "variant": [18],
         "type_reference": [19],
-        "operator_payload": [20],
         "trait_declaration": [21],
-        "method": [22],
         "table": [23],
     })
 }
@@ -144,30 +174,25 @@ fn rust_grammar_configuration() -> Value {
 }
 
 #[test]
-fn all_current_file_kinds_return_artifacts_with_explicit_deferred_receipts() {
+fn all_current_file_kinds_return_complete_artifacts() {
     let generator = generator();
 
     let nexus = generator.generate(NEXUS).expect("Nexus should generate");
     assert_eq!(nexus.kind(), WholeEthosFileKind::Nexus);
-    assert!(nexus.deferred().is_empty());
     assert!(nexus.rust().contains("pub enum"));
 
     let interface = generator
         .generate(INTERFACE)
         .expect("Interface declarations should generate");
     assert_eq!(interface.kind(), WholeEthosFileKind::Interface);
-    assert_eq!(interface.deferred().len(), 1);
-    assert!(
-        interface
-            .deferred()
-            .iter()
-            .all(is_interface_operator_deferral)
-    );
     assert!(interface.rust().contains("#[derive(rkyv::Archive"));
     assert!(interface.rust().contains("impl std::fmt::Display"));
     assert!(interface.rust().contains("impl std::error::Error"));
     assert!(!interface.rust().contains("impl From<"));
-    assert!(interface.report().contains("deferred 1"));
+    assert!(interface.rust().contains("protos::Stream"));
+    assert!(interface.rust().contains("UnknownStream"));
+    assert!(interface.rust().contains("AlreadyClosed"));
+    assert!(!interface.report().contains("deferred"));
     assert!(!interface.report().contains("membership"));
     assert!(!interface.report().contains("refusal-semantics"));
 
@@ -175,12 +200,11 @@ fn all_current_file_kinds_return_artifacts_with_explicit_deferred_receipts() {
         .generate(SEMA)
         .expect("Sema record declarations should generate");
     assert_eq!(sema.kind(), WholeEthosFileKind::Sema);
-    assert!(sema.deferred().is_empty());
     assert!(sema.rust().contains("#[derive(rkyv::Archive"));
     assert!(sema.rust().contains("impl sema_engine::TableSpecification"));
     assert!(sema.rust().contains("type Record ="));
     assert!(sema.rust().contains("type Key ="));
-    assert!(sema.report().contains("deferred 0"));
+    assert!(!sema.report().contains("deferred"));
 }
 
 #[test]
