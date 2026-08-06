@@ -1,5 +1,5 @@
 {
-  description = "nomos-engine — CoreNomos transformation daemon and thin CLI";
+  description = "nomos-engine — authority-sealed bootstrap transformation and Logos archive boundary";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -16,15 +16,7 @@
         pkgs = import nixpkgs { inherit system; };
         rust = rust-build.lib.${system}.fromPkgs pkgs;
         inherit (rust) craneLib toolchain;
-        compatibilityGoldenFilter =
-          path: type:
-          type == "regular"
-          && pkgs.lib.hasInfix "/tests/goldens/" path
-          && pkgs.lib.hasSuffix ".sema" path;
-        src = rust.cleanSource {
-          root = ./.;
-          extraFilters = [ compatibilityGoldenFilter ];
-        };
+        src = rust.cleanSource { root = ./.; };
         commonArguments = { inherit src; strictDeps = true; };
         cargoArtifacts = craneLib.buildDepsOnly commonArguments;
       in
