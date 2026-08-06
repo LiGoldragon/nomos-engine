@@ -1,50 +1,44 @@
-# nomos-engine architecture
+# Architecture — nomos-engine
 
-The daemon owns a versioned embedded Sema database at the configured
-`nomos.sema` path. One component record family contains Capsule rows and slot
-rows, allowing a fresh Capsule assertion and live-slot mutation to share one
-atomic commit. Fresh databases contain no Capsule or slot rows.
+## Authority-sealed transformation
 
-Capsule rows retain the immutable canonical sealed archive and an append-only
-sequence of authenticated NameTree projections. Slot rows retain only full
-Nomos Capsule identities, the seated set, live binding, generation, ordered
-generation-class metadata, and the binding commit marker. Short hexadecimal
-forms are resolved ephemerally inside one slot and are never persisted.
+The live engine is a library boundary over one complete
+`VerifiedBootstrapAssembly`. The assembly carries the reader and the
+authority-branded transaction produced by Sema Translator:
 
-Deploy validates the full Capsule/projection relationship before state access.
-An exact current identity, exact current projection, and identical ordered
-selection returns `AlreadyCurrent` without entering a write API, even when the
-supplied CAS expectation is stale. Any binding change is one atomic transaction
-and advances the slot generation once. The binding marker is the overflow-
-checked predicted next database marker embedded in that same write; the atomic
-receipt must match both marker and operation count. The daemon serializes all
-operations through one runtime mutex. Any impossible post-commit divergence
-poisons the process-local engine until restart and recovery; no second
-marker-stamping write exists.
+```text
+VerifiedBootstrapAssembly
+          │
+          v
+AuthoritySealedBootstrapTransformation::lower_bootstrap
+          │
+          ├─ Interface or Nexus → BootstrapSliceOneLowering::lower
+          └─ Sema               → BootstrapSliceOneLowering::lower_sema
+          │
+          v
+BootstrapTransformationOutcome { WholeLogos, archive }
+```
 
-Projection advancement is a separate Capsule-row mutation. It appends the exact
-successor projection without changing any slot generation or deployment
-metadata. Until a public translator rename receipt verifier exists, a supplied
-opaque receipt is explicitly unsupported and the operation requires the
-configured admin Unix peer UID.
+Core Nomos revalidates the exact authority receipt and complete prepared model
+before lowering. The engine cannot accept a draft, substitute a reader, allocate
+an identity, or reconstruct another Ethos representation.
 
-Bootstrap transformation admits either the live binding or one retained seat
-and snapshots the full Capsule identity, slot generation, and projection
-version. Its input is a production `VerifiedBootstrapAssembly`: the matching
-reader revalidates the exact authority receipt and complete prepared model, then
-`BootstrapSliceOneLowering` consumes the branded transaction directly. No
-WholeEthos value, six-slot adapter, draft reconstruction, or identity minting
-enters this path.
+## Storage provenance
 
-Prepared bootstrap transactions are explicitly `NotYetArchived`. The current
-opaque `Request::Transform` wire therefore returns the typed
-`EthosPopulationInvalid` refusal rather than inventing an archive for source and
-authority approval. The in-process result is complete `WholeLogos`; its bytes
-are restored through `WholeLogos::from_archive_bytes` before a reply is
-constructed. There is no `MacroPackage`, native WholeEthos evaluator, fixture,
-central storage socket, or output-slot write in the live daemon path.
+Sema lowering receives explicit `ExternalStorageProvenance` for every nonlocal
+stored type. Core Nomos validates each complete identity, structural storage
+fingerprint, and owning published source revision. Interface and Nexus lowering
+reject any supplied external storage evidence because those file kinds have no
+storage-evidence position.
 
-Slot identity, CAS policy, ordered generation metadata, database schema version,
-admin UID policy, and the native dual output carrier remain
-`[to-be-reviewed-by-psyche]`; po2.8 owns retiring the temporary generation-class
-selection.
+## Result boundary
+
+Successful lowering produces typed `WholeLogos`, archives that exact value, and
+restores the bytes through `WholeLogos::from_archive_bytes`. The engine returns a
+`BootstrapTransformationOutcome` only when the restored value equals the typed
+result. Lowering errors, archive errors, unexpected storage evidence, and an
+archive round-trip mismatch remain distinct typed refusals.
+
+`tests/bootstrap.rs` proves successful Nexus and storage-aware Sema lowering,
+strict external-evidence admission, authority validation through the assembled
+transaction, and equality of the returned typed and archived results.
