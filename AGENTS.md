@@ -1,10 +1,10 @@
 # Agent guidance
 
-This repository is under fast development and constantly breaking.
+This repository is the library-only authority-sealed bootstrap transformation
+boundary. Keep the exact reader/transaction pair authoritative, lower it
+directly through Core Nomos, and return typed Logos with its validated portable
+archive.
 
-The daemon is stateful and owns its embedded, versioned `nomos.sema` database.
-A separate small translator daemon is authoritative only for shared naming and
-encodedID allocation.
-
-Do not reintroduce central storage, actor-plane indirection, fixture packages,
-legacy `MacroPackage` evaluation, or daemon-side Logos output writes.
+There is no daemon, database, batch/store lifecycle, sealed-population owner,
+Signal Nomos operation layer, generated fixture package, or legacy macro
+evaluator here.
