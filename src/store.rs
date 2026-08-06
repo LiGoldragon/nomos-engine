@@ -1,27 +1,23 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use capsule_content_identity::{CapsuleIdentity, PortableArchive};
+use capsule_content_identity::CapsuleIdentity;
+use core_logos::WholeLogos;
 use core_nomos::{
-    NameTreeProjectionVersion, NativeAuthoredEvaluator, NativeEvaluatedLogos,
-    NativeLogosPopulation, SealedNomosCapsule, SealedNomosPopulation,
+    BootstrapSliceOneLowering, NameTreeProjectionVersion, SealedNomosCapsule, SealedNomosPopulation,
 };
-use protos::EncodedPopulation;
 use rkyv::{Archive, Deserialize, Serialize};
 use sema_engine::{
     AtomicCommit, Engine, EngineOpen, EngineRecord, FamilyDirectory, FamilyName, QueryPlan,
     RecordKey, RowMaterializer, SchemaHash, SchemaVersion, TableDescriptor, TableName,
     TableReference, VersionedStoreName, VersioningPolicy,
 };
+use sema_translator::bootstrap::VerifiedBootstrapAssembly;
 use signal_nomos::{
     AdmissionSnapshot, CapsuleSelector, CommitMarker, DeployOutcome, GenerationSelection,
     NomosCapsuleArchive, NomosDeploymentArtifacts, NomosProjectionArchive, NomosSlotId,
     ProjectionOutcome, Rejection, Reply, Request, SlotExpectation, SlotGeneration,
     TransformOutcome, TransformSelector,
-};
-
-use crate::name_tree::{
-    EngineEthosNameTree, EngineLogosNameTree, PopulationError, decode_ethos_population,
 };
 
 const NOMOS_TABLE: TableName = TableName::new("nomos");
@@ -271,7 +267,7 @@ impl NomosEngine {
                 projection,
                 translator_receipt.is_some(),
             ),
-            Request::Transform { selector, ethos } => self.transform(selector, ethos),
+            Request::Transform { .. } => Ok(Reply::Rejected(Rejection::EthosPopulationInvalid)),
         };
         match result {
             Err(error) if error.can_reply_storage_failed() && !self.poisoned => {
@@ -318,20 +314,45 @@ impl NomosEngine {
             .collect()
     }
 
-    /// Recheck that response bytes are a canonical, semantically valid native
-    /// Logos population for the seated Capsule's authored evaluator.
-    pub fn validate_logos_population(
+    /// Admit one authority-sealed bootstrap transaction and lower it directly
+    /// through the matching Core Nomos reader boundary.
+    ///
+    /// Bootstrap transactions are deliberately not archived yet. This
+    /// in-process method is therefore the only current bootstrap transformation
+    /// surface; the opaque wire request typed-refuses until a truthful archived
+    /// contract exists.
+    pub fn transform_bootstrap(
         &self,
-        identity: CapsuleIdentity,
-        expected: &EngineEthosNameTree,
-        bytes: &[u8],
-    ) -> Result<()> {
-        let capsule = self
-            .capsules
-            .get(&identity)
-            .ok_or_else(|| Error::State("unknown Nomos Capsule".into()))?
-            .sealed_capsule()?;
-        restore_checked_logos(&capsule, expected, bytes).map(|_| ())
+        selector: TransformSelector,
+        assembly: &VerifiedBootstrapAssembly,
+    ) -> Result<Reply> {
+        let (slot_state, capsule_state) = match self.resolve_transform(selector) {
+            Ok(value) => value,
+            Err(rejection) => return Ok(Reply::Rejected(rejection)),
+        };
+        let logos = match BootstrapSliceOneLowering::new()
+            .lower(assembly.reader(), assembly.transaction())
+        {
+            Ok(logos) => logos,
+            Err(_) => return Ok(Reply::Rejected(Rejection::LoweringFailed)),
+        };
+        let bytes = match logos.to_archive_bytes() {
+            Ok(bytes) => bytes,
+            Err(_) => return Ok(Reply::Rejected(Rejection::LoweringFailed)),
+        };
+        match WholeLogos::from_archive_bytes(&bytes) {
+            Ok(restored) if restored == logos => {}
+            Ok(_) | Err(_) => return Ok(Reply::Rejected(Rejection::LoweringFailed)),
+        }
+        let snapshot = AdmissionSnapshot::new(
+            slot_state.slot,
+            capsule_state.identity,
+            slot_state.generation,
+            capsule_state.sealed_population()?.projection().version(),
+        );
+        let outcome = TransformOutcome::new(snapshot, bytes)
+            .map_err(|error| Error::Archive(error.to_string()))?;
+        Ok(Reply::Transformed(outcome))
     }
 
     fn reload_and_validate(&mut self) -> Result<()> {
@@ -586,51 +607,6 @@ impl NomosEngine {
         }))
     }
 
-    fn transform(
-        &self,
-        selector: TransformSelector,
-        ethos: signal_nomos::EthosPopulationArchive,
-    ) -> Result<Reply> {
-        let (slot_state, capsule_state) = match self.resolve_transform(selector) {
-            Ok(value) => value,
-            Err(rejection) => return Ok(Reply::Rejected(rejection)),
-        };
-        let population = match decode_ethos_population(&ethos) {
-            Ok(population) => population,
-            Err(_) => return Ok(Reply::Rejected(Rejection::EthosPopulationInvalid)),
-        };
-        let references = match population.name_tree().reference_universe() {
-            Ok(references) => references,
-            Err(_) => return Ok(Reply::Rejected(Rejection::ReferenceUniverseInvalid)),
-        };
-        let capsule = capsule_state.sealed_capsule()?;
-        let evaluator = match NativeAuthoredEvaluator::try_new(capsule.transformers(), references) {
-            Ok(evaluator) => evaluator,
-            Err(_) => return Ok(Reply::Rejected(Rejection::LoweringFailed)),
-        };
-        let transformation = match evaluator.transform(&population) {
-            Ok(transformation) => transformation,
-            Err(_) => return Ok(Reply::Rejected(Rejection::LoweringFailed)),
-        };
-        let bytes = match transformation.population().to_archive_bytes() {
-            Ok(bytes) => bytes,
-            Err(_) => return Ok(Reply::Rejected(Rejection::LoweringFailed)),
-        };
-        if restore_checked_logos(&capsule, population.name_tree(), &bytes).is_err() {
-            return Ok(Reply::Rejected(Rejection::LoweringFailed));
-        }
-        let projection_version = capsule_state.sealed_population()?.projection().version();
-        let snapshot = AdmissionSnapshot::new(
-            slot_state.slot,
-            capsule_state.identity,
-            slot_state.generation,
-            projection_version,
-        );
-        let outcome = TransformOutcome::new(snapshot, bytes)
-            .map_err(|error| Error::Archive(error.to_string()))?;
-        Ok(Reply::Transformed(outcome))
-    }
-
     fn resolve_transform(
         &self,
         selector: TransformSelector,
@@ -739,40 +715,6 @@ fn resolve_seat(
     }
 }
 
-fn restore_checked_logos(
-    capsule: &SealedNomosCapsule,
-    expected: &EngineEthosNameTree,
-    bytes: &[u8],
-) -> Result<NativeLogosPopulation<EngineLogosNameTree>> {
-    type Population = EncodedPopulation<NativeEvaluatedLogos, EngineLogosNameTree>;
-    let raw = <Population as PortableArchive>::from_archive_bytes(bytes)
-        .map_err(|error| Error::Archive(error.to_string()))?;
-    let canonical = <Population as PortableArchive>::to_archive_bytes(&raw)
-        .map_err(|error| Error::Archive(error.to_string()))?;
-    if canonical.as_ref() != bytes {
-        return Err(Error::Archive(
-            "native Logos population archive is not canonical".into(),
-        ));
-    }
-    if !raw.name_tree().matches_plan(expected) {
-        return Err(Error::Archive(
-            "native Logos NameTree is not bound to the authenticated input plan".into(),
-        ));
-    }
-    let references = expected.reference_universe()?;
-    let evaluator = NativeAuthoredEvaluator::try_new(capsule.transformers(), references)
-        .map_err(|error| Error::Archive(error.to_string()))?;
-    let restored =
-        NativeLogosPopulation::<EngineLogosNameTree>::from_archive_bytes(bytes, &evaluator)
-            .map_err(|error| Error::Archive(error.to_string()))?;
-    if !restored.name_tree().matches_plan(expected) {
-        return Err(Error::Archive(
-            "restored native Logos NameTree is not bound to the authenticated input plan".into(),
-        ));
-    }
-    Ok(restored)
-}
-
 fn capsule_key(identity: CapsuleIdentity) -> String {
     format!("capsule:{}", identity.content_addressed_hash())
 }
@@ -831,10 +773,6 @@ pub enum Error {
     Poisoned,
     #[error("embedded Sema reported failure after the predicted marker became durable: {0}")]
     PostCommitFailure(String),
-    #[error(transparent)]
-    Population(#[from] PopulationError),
-    #[error(transparent)]
-    NameTree(#[from] crate::name_tree::NameTreeError),
 }
 
 impl Error {

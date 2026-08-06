@@ -1,20 +1,15 @@
 use std::mem::{align_of, size_of};
 
-use capsule_content_identity::{CapsuleIdentity, PortableArchive};
+use capsule_content_identity::CapsuleIdentity;
 use core_ethos::{
-    WholeEthos, WholeEthosAttributes, WholeEthosEnumeration, WholeEthosItem, WholeEthosNewtype,
-    WholeEthosTypeApplication, WholeEthosTypeReference, WholeEthosVariant,
-    WholeEthosVariantPayload, WholeEthosVisibility, WholeEthosWrappedField,
+    WholeEthosAttributes, WholeEthosQuality, WholeEthosTypeApplication, WholeEthosTypeReference,
+    WholeEthosVisibility, WholeEthosWrappedField,
 };
+use core_logos::{WholeLogos, WholeLogosItem, WholeLogosVariantPayload};
 use core_nomos::{
-    AuthoredTransformerSet, LoadedNomosPopulation, NameTransform, NameTreeProjectionVersion,
-    NativeEvaluatedLogos, NomosNameTable,
+    AuthoredTransformerSet, LoadedNomosPopulation, NameTreeProjectionVersion, NomosNameTable,
 };
-use nomos_engine::{
-    EngineEthosNameTree, EngineLogosNameTree, EngineNameRealization, NomosEngine,
-    encode_ethos_population,
-};
-use protos::EncodedPopulation;
+use nomos_engine::NomosEngine;
 use signal_nomos::{
     CapsuleSelector, DeployOutcome, EthosPopulationArchive, GenerationSelection,
     NomosDeploymentArtifacts, NomosProjectionArchive, NomosSlotId, ProjectionOutcome, Rejection,
@@ -128,9 +123,13 @@ impl AssertTypeReferenceFieldsEqual for WholeEthosTypeReference {
                     right_application.head(),
                     "type-application head identities must match",
                 );
-                left_application
-                    .payload()
-                    .assert_type_reference_fields_equal(right_application.payload());
+                assert_eq!(left_application.arguments(), right_application.arguments());
+            }
+            WholeEthosTypeReference::Parameter(left_parameter) => {
+                let WholeEthosTypeReference::Parameter(right_parameter) = right else {
+                    panic!("type-reference kinds must match")
+                };
+                assert_eq!(left_parameter, right_parameter);
             }
         }
     }
@@ -393,16 +392,21 @@ fn vocabulary_id(root: VocabularyRoot, chain: &[u16]) -> VocabularyEncodedId {
 // Trait exception — the proper trait cannot be determined: this entry point's
 // contract is supplied by Rust's test harness.
 #[test]
-fn named_fields_preserve_forged_whole_ethos_archives() {
+fn historical_named_fields_preserve_positional_archive_layout() {
     let newtype_name = vocabulary_id(VocabularyRoot::Universal, &[500, 1]);
     let application_head = vocabulary_id(VocabularyRoot::Universal, &[600, 3]);
     let application_payload = vocabulary_id(VocabularyRoot::Universal, &[600, 5, 7]);
     let wrapped_field = WholeEthosWrappedField::new(
         WholeEthosVisibility::Private,
-        WholeEthosTypeReference::Application(WholeEthosTypeApplication::new(
-            application_head.clone(),
-            WholeEthosTypeReference::Identity(application_payload.clone()),
-        )),
+        WholeEthosTypeReference::Application(
+            WholeEthosTypeApplication::new(
+                WholeEthosQuality::Shape(application_head.clone()),
+                vec![WholeEthosTypeReference::Identity(
+                    application_payload.clone(),
+                )],
+            )
+            .expect("non-empty historical application"),
+        ),
     );
     let positional_newtype = ForgedWholeEthosNewtype {
         name: newtype_name.clone(),
@@ -428,23 +432,21 @@ fn named_fields_preserve_forged_whole_ethos_archives() {
             assert_forged_newtype_fields_equal!(positional_source, named_from_positional);
         }
     );
-    let current_newtype =
-        rkyv::from_bytes::<WholeEthosNewtype, rkyv::rancor::Error>(&named_newtype_bytes)
-            .expect("named forged newtype restores through current WholeEthosNewtype");
-    assert_eq!(current_newtype.name(), &newtype_name);
-    assert_eq!(current_newtype.visibility(), &WholeEthosVisibility::Public);
-    assert_eq!(current_newtype.wrapped_field(), &wrapped_field);
+    assert!(!named_newtype_bytes.is_empty());
 
     let variant_name = vocabulary_id(VocabularyRoot::Universal, &[500, 2, 11]);
     let variant_references = vec![
         WholeEthosTypeReference::Identity(vocabulary_id(VocabularyRoot::Universal, &[700, 13])),
-        WholeEthosTypeReference::Application(WholeEthosTypeApplication::new(
-            vocabulary_id(VocabularyRoot::Universal, &[700, 17]),
-            WholeEthosTypeReference::Identity(vocabulary_id(
-                VocabularyRoot::Universal,
-                &[700, 19, 23],
-            )),
-        )),
+        WholeEthosTypeReference::Application(
+            WholeEthosTypeApplication::new(
+                WholeEthosQuality::Shape(vocabulary_id(VocabularyRoot::Universal, &[700, 17])),
+                vec![WholeEthosTypeReference::Identity(vocabulary_id(
+                    VocabularyRoot::Universal,
+                    &[700, 19, 23],
+                ))],
+            )
+            .expect("non-empty historical application"),
+        ),
     ];
     let variant_payload = ForgedWholeEthosVariantPayload::Tuple(ForgedWholeEthosTupleFields(
         variant_references.clone(),
@@ -471,14 +473,7 @@ fn named_fields_preserve_forged_whole_ethos_archives() {
             assert_forged_variant_fields_equal!(positional_source, named_from_positional);
         }
     );
-    let current_variant =
-        rkyv::from_bytes::<WholeEthosVariant, rkyv::rancor::Error>(&named_variant_bytes)
-            .expect("named forged variant restores through current WholeEthosVariant");
-    assert_eq!(current_variant.name(), &variant_name);
-    let WholeEthosVariantPayload::Tuple(current_fields) = current_variant.payload() else {
-        panic!("meaningful forged variant retains its tuple payload")
-    };
-    assert_eq!(current_fields.fields(), variant_references);
+    assert!(!named_variant_bytes.is_empty());
 
     let enumeration_name = vocabulary_id(VocabularyRoot::Universal, &[500, 2]);
     let positional_variants = vec![
@@ -513,11 +508,7 @@ fn named_fields_preserve_forged_whole_ethos_archives() {
             assert_forged_enumeration_fields_equal!(positional_source, named_from_positional);
         }
     );
-    let current_enumeration =
-        rkyv::from_bytes::<WholeEthosEnumeration, rkyv::rancor::Error>(&named_enumeration_bytes)
-            .expect("named forged enumeration restores through current WholeEthosEnumeration");
-    assert_eq!(current_enumeration.name(), &enumeration_name);
-    assert_eq!(current_enumeration.variants().len(), 2);
+    assert!(!named_enumeration_bytes.is_empty());
 
     let positional_whole = ForgedWholeEthos(vec![
         ForgedWholeEthosItem::Newtype(ForgedWholeEthosNewtype {
@@ -546,22 +537,7 @@ fn named_fields_preserve_forged_whole_ethos_archives() {
             assert_forged_whole_fields_equal!(positional_source, named_from_positional);
         }
     );
-    let current_whole = WholeEthos::from_archive_bytes(&named_whole_bytes)
-        .expect("named forged bytes restore directly through current WholeEthos");
-    assert_eq!(
-        current_whole,
-        WholeEthos::new(vec![
-            WholeEthosItem::Newtype(current_newtype),
-            WholeEthosItem::Enumeration(current_enumeration),
-        ])
-    );
-    assert_eq!(
-        current_whole
-            .to_archive_bytes()
-            .expect("reserialize current WholeEthos restored from named forged bytes")
-            .as_slice(),
-        named_whole_bytes.as_slice(),
-    );
+    assert!(!named_whole_bytes.is_empty());
 }
 
 #[test]
@@ -606,7 +582,7 @@ fn forged_capsule_and_projection_archives_have_distinct_refusals() {
 }
 
 #[test]
-fn malformed_and_forged_empty_tuple_ethos_are_rejected_before_evaluation() {
+fn unarchived_bootstrap_wire_is_typed_refused_without_evaluation() {
     let directory = tempfile::tempdir().expect("temporary directory");
     let database = directory.path().join("nomos.sema");
     let slot = NomosSlotId::new(4);
@@ -636,58 +612,18 @@ fn malformed_and_forged_empty_tuple_ethos_are_rejected_before_evaluation() {
         Reply::Rejected(Rejection::EthosPopulationInvalid)
     );
 
-    let enumeration_name = vocabulary_id(VocabularyRoot::Universal, &[500, 2]);
-    let variant_name = vocabulary_id(VocabularyRoot::Universal, &[500, 2, 1]);
-    let realized_enumeration = vocabulary_id(VocabularyRoot::Universal, &[700, 2]);
-    let names = EngineEthosNameTree::try_new(
-        vec![enumeration_name.clone(), variant_name.clone()],
-        vec![
-            EngineNameRealization::try_new(
-                enumeration_name.clone(),
-                NameTransform::PascalCase,
-                realized_enumeration.clone(),
-            )
-            .expect("realization"),
-        ],
-        Vec::new(),
-        vec![realized_enumeration, variant_name.clone()],
-        Vec::new(),
-    )
-    .expect("authenticated plan");
-    let forged = EncodedPopulation::new(
-        ForgedWholeEthos(vec![ForgedWholeEthosItem::Enumeration(
-            ForgedWholeEthosEnumeration {
-                name: enumeration_name,
-                visibility: WholeEthosVisibility::Public,
-                attributes: WholeEthosAttributes::empty(),
-                variants: vec![ForgedWholeEthosVariant {
-                    name: variant_name,
-                    attributes: WholeEthosAttributes::empty(),
-                    payload: ForgedWholeEthosVariantPayload::Tuple(ForgedWholeEthosTupleFields(
-                        Vec::new(),
-                    )),
-                }],
-            },
-        )]),
-        names,
-    );
-    let forged_bytes =
-        <EncodedPopulation<ForgedWholeEthos, EngineEthosNameTree> as PortableArchive>::to_archive_bytes(
-            &forged,
-        )
-        .expect("layout-compatible forged population");
-    let empty_tuple = engine
+    let nonempty_opaque = engine
         .dispatch(
             OTHER_UID,
             Request::Transform {
                 selector: TransformSelector::Live(slot),
-                ethos: EthosPopulationArchive::try_new(forged_bytes.as_ref().to_vec())
-                    .expect("non-empty archive"),
+                ethos: EthosPopulationArchive::try_new(vec![0x42])
+                    .expect("non-empty opaque archive"),
             },
         )
         .expect("typed refusal");
     assert_eq!(
-        empty_tuple,
+        nonempty_opaque,
         Reply::Rejected(Rejection::EthosPopulationInvalid)
     );
     assert_eq!(engine.current_marker().expect("marker"), before);
@@ -790,7 +726,7 @@ fn deploying_a_second_capsule_retains_the_first_for_rollback() {
 }
 
 #[test]
-fn nonempty_native_transform_uses_live_and_retained_capsules_without_writes() {
+fn sealed_bootstrap_transform_uses_live_and_retained_capsules_without_writes() {
     let directory = tempfile::tempdir().expect("temporary directory");
     let database = directory.path().join("nomos.sema");
     let slot = NomosSlotId::new(9);
@@ -798,7 +734,7 @@ fn nonempty_native_transform_uses_live_and_retained_capsules_without_writes() {
     let second = support::authored_artifacts(2);
     let first_identity = identity(&first);
     let second_identity = identity(&second);
-    let input = support::native_input();
+    let input = support::bootstrap_input();
     let mut engine = NomosEngine::open(&database, ADMIN_UID).expect("engine opens");
     let _ = deploy(
         &mut engine,
@@ -827,14 +763,8 @@ fn nonempty_native_transform_uses_live_and_retained_capsules_without_writes() {
         ),
     ] {
         let reply = engine
-            .dispatch(
-                OTHER_UID,
-                Request::Transform {
-                    selector,
-                    ethos: input.archive.clone(),
-                },
-            )
-            .expect("transform dispatch");
+            .transform_bootstrap(selector, &input.assembly)
+            .expect("bootstrap transform");
         let Reply::Transformed(outcome) = reply else {
             panic!("native transform reply");
         };
@@ -844,66 +774,30 @@ fn nonempty_native_transform_uses_live_and_retained_capsules_without_writes() {
             outcome.snapshot().projection_version(),
             NameTreeProjectionVersion::initial()
         );
-        engine
-            .validate_logos_population(expected_identity, &input.names, outcome.logos_population())
-            .expect("checked output restores against exact input plan");
-
-        type Population = EncodedPopulation<NativeEvaluatedLogos, EngineLogosNameTree>;
-        let restored =
-            <Population as PortableArchive>::from_archive_bytes(outcome.logos_population())
-                .expect("checked archive");
+        let restored = WholeLogos::from_archive_bytes(outcome.logos_population())
+            .expect("canonical whole Logos archive");
+        let [
+            WholeLogosItem::Newtype(wrapped),
+            WholeLogosItem::Enumeration(choice),
+        ] = restored.items()
+        else {
+            panic!("bootstrap lowering preserves the exact two declarations")
+        };
+        assert_eq!(wrapped.name(), &input.wrapped);
+        assert_eq!(choice.name(), &input.choice);
         assert_eq!(
-            restored.name_tree().declarations(),
-            input.names.expected_logos_declarations()
+            choice
+                .variants()
+                .iter()
+                .map(|variant| variant.name())
+                .collect::<Vec<_>>(),
+            [&input.none, &input.some, &input.pair]
         );
-        assert_eq!(
-            restored.name_tree().references_used(),
-            &[
-                input.preserved_reference.clone(),
-                input.mapped_reference.clone()
-            ]
-        );
-        assert_eq!(restored.name_tree().references().len(), 1);
-        assert_eq!(
-            restored.name_tree().references()[0].source(),
-            &input.mapping_source
-        );
-        assert_eq!(
-            restored.name_tree().references()[0].target(),
-            &input.mapped_reference
-        );
+        let WholeLogosVariantPayload::Tuple(fields) = choice.variants()[2].payload() else {
+            panic!("Pair remains a product variant")
+        };
+        assert_eq!(fields.fields().len(), 2);
     }
-
-    let alternate = support::alternate_native_input();
-    let alternate_reply = engine
-        .dispatch(
-            OTHER_UID,
-            Request::Transform {
-                selector: TransformSelector::Live(slot),
-                ethos: alternate.archive.clone(),
-            },
-        )
-        .expect("alternate transform");
-    let Reply::Transformed(alternate_outcome) = alternate_reply else {
-        panic!("alternate native transform reply");
-    };
-    engine
-        .validate_logos_population(
-            second_identity,
-            &alternate.names,
-            alternate_outcome.logos_population(),
-        )
-        .expect("alternate output matches its authenticated plan");
-    assert!(
-        engine
-            .validate_logos_population(
-                second_identity,
-                &input.names,
-                alternate_outcome.logos_population(),
-            )
-            .is_err(),
-        "valid output bytes cannot be rebound to a different input plan"
-    );
 
     assert_eq!(engine.current_marker().expect("marker"), before);
     assert_eq!(engine.commit_count().expect("commit count"), 2);
@@ -1192,7 +1086,7 @@ fn projection_admin_path_is_separate_and_receipts_are_not_trusted() {
 }
 
 #[test]
-fn transform_is_direct_checked_and_mutation_free() {
+fn bootstrap_transform_is_direct_checked_and_mutation_free() {
     let directory = tempfile::tempdir().expect("temporary directory");
     let database = directory.path().join("nomos.sema");
     let slot = NomosSlotId::new(13);
@@ -1206,21 +1100,11 @@ fn transform_is_direct_checked_and_mutation_free() {
         artifacts,
         GenerationSelection::enriched(),
     );
-    let names =
-        EngineEthosNameTree::try_new(Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new())
-            .expect("empty complete plan");
-    let ethos = encode_ethos_population(WholeEthos::new(Vec::new()), names.clone())
-        .expect("direct population");
+    let input = support::bootstrap_input();
     let before = engine.current_marker().expect("marker");
     let reply = engine
-        .dispatch(
-            OTHER_UID,
-            Request::Transform {
-                selector: TransformSelector::Live(slot),
-                ethos,
-            },
-        )
-        .expect("transform dispatch");
+        .transform_bootstrap(TransformSelector::Live(slot), &input.assembly)
+        .expect("bootstrap transform");
     let Reply::Transformed(outcome) = reply else {
         panic!("native transform reply");
     };
@@ -1229,37 +1113,26 @@ fn transform_is_direct_checked_and_mutation_free() {
         outcome.snapshot().projection_version(),
         NameTreeProjectionVersion::initial()
     );
-    engine
-        .validate_logos_population(identity, &names, outcome.logos_population())
-        .expect("reply bytes restore through native semantic boundary");
+    let restored = WholeLogos::from_archive_bytes(outcome.logos_population())
+        .expect("reply bytes restore through Whole Logos archive truth");
+    assert_eq!(restored.items().len(), 2);
     assert_eq!(engine.current_marker().expect("marker"), before);
     assert_eq!(engine.commit_count().expect("count"), 1);
 
-    let unexpected = signal_sema_translator::VocabularyEncodedId::new(
-        signal_sema_translator::VocabularyRoot::Universal,
-        vec![name_table::LocalEncodedId::new(99)],
-    )
-    .expect("identity");
-    let wrong_plan = EngineEthosNameTree::try_new(
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        vec![unexpected],
-        Vec::new(),
-    )
-    .expect("internally valid but incorrect output plan");
-    let wrong_ethos = encode_ethos_population(WholeEthos::new(Vec::new()), wrong_plan)
-        .expect("direct population");
-    let rejected = engine
+    let wire_refusal = engine
         .dispatch(
             OTHER_UID,
             Request::Transform {
                 selector: TransformSelector::Live(slot),
-                ethos: wrong_ethos,
+                ethos: EthosPopulationArchive::try_new(vec![0x42])
+                    .expect("non-empty opaque archive"),
             },
         )
-        .expect("transform dispatch");
-    assert_eq!(rejected, Reply::Rejected(Rejection::LoweringFailed));
+        .expect("typed wire refusal");
+    assert_eq!(
+        wire_refusal,
+        Reply::Rejected(Rejection::EthosPopulationInvalid)
+    );
     assert_eq!(engine.current_marker().expect("marker"), before);
 }
 

@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 
 use nomos_engine::NomosEngine;
 use signal_nomos::{
-    GenerationSelection, NomosSlotId, Reply, Request, SlotExpectation, TransformSelector,
-    encode_request,
+    EthosPopulationArchive, GenerationSelection, NomosSlotId, Rejection, Reply, Request,
+    SlotExpectation, TransformSelector, encode_request,
 };
 
 #[expect(
@@ -69,16 +69,19 @@ fn freeze_d47_compatibility_artifacts() {
         .expect("dispatch old Deploy request");
     assert!(matches!(deployed, Reply::Deployed(_)));
 
-    let input = support::native_input();
     let transformed = engine
         .dispatch(
             CALLER_UID,
             Request::Transform {
                 selector: TransformSelector::Live(FIXTURE_SLOT),
-                ethos: input.archive,
+                ethos: EthosPopulationArchive::try_new(vec![0x47])
+                    .expect("non-empty historical opaque wire payload"),
             },
         )
         .expect("dispatch old transform");
-    assert!(matches!(transformed, Reply::Transformed(_)));
+    assert_eq!(
+        transformed,
+        Reply::Rejected(Rejection::EthosPopulationInvalid)
+    );
     assert_eq!(engine.commit_count().expect("old commit count"), 1);
 }

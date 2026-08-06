@@ -1,21 +1,17 @@
 //! Stateful Nomos daemon core.
 //!
 //! The component owns one embedded, versioned Sema database and evaluates
-//! sealed authored Nomos directly over encoded Ethos populations. No central
-//! storage socket, legacy package evaluator, fixture, or output-slot write is
-//! part of this production surface.
+//! sealed authored Nomos Capsules and admits authority-sealed bootstrap
+//! transactions through a direct in-process Logos lowering boundary. No central
+//! storage socket, unarchived bootstrap wire invention, legacy package evaluator,
+//! fixture, or output-slot write is part of this production surface.
 
 pub mod batch;
-mod name_tree;
 mod store;
 
 use std::path::Path;
 use std::sync::Arc;
 
-pub use name_tree::{
-    EngineEthosNameTree, EngineLogosNameTree, EngineNameRealization, EngineReferenceMapping,
-    NameTreeError, PopulationError, encode_ethos_population,
-};
 pub use store::{Error, NomosEngine, ObservedSlot, Result};
 use tokio::sync::Mutex;
 

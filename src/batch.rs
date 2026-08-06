@@ -6,22 +6,18 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
-use batch_core_ethos::{
+use core_ethos::{
     DecodedEthos, EthosCodec, EthosCodecBuildError, EthosDecodeError, EthosGrammarError,
     EthosGrammarIdentities, EthosGrammarIds, WholeEthos, WholeEthosBody,
     WholeEthosBuiltinPriorError, WholeEthosBuiltinPriors, WholeEthosFileKind, WholeEthosItem,
 };
-use batch_core_logos::WholeLogos;
-use batch_core_nomos::{
+use core_logos::WholeLogos;
+use core_nomos::{
     ArchiveAbiEquivalenceChecks, BundleStorageProvenance, ExternalStorageProvenance,
     ExternalStorageSuccessorEvidence, InterfaceRoleIdentities, InterfaceStructuralTransformation,
     NexusStructuralTransformation, NexusTransformation, NexusTransformationError,
     PreservedSemaFamilyProvenance, SemaStructuralTransformation, StorageProvenanceOwner,
     StreamLifecycleIdentities,
-};
-use batch_structural_codec::{
-    DeclarationAssignment, DecodeNameBindings, EncodedNameResolver, NameOccurrence,
-    ResolvedReference,
 };
 use name_table::{LocalEncodedId, Name};
 use rust_logos::{
@@ -30,6 +26,10 @@ use rust_logos::{
 };
 use serde::Deserialize;
 use signal_sema_translator::{VocabularyEncodedId, VocabularyRoot};
+use structural_codec::{
+    DeclarationAssignment, DecodeNameBindings, EncodedNameResolver, NameOccurrence,
+    ResolvedReference,
+};
 
 /// Execute one complete offline batch generation request.
 pub trait OfflineBatchGeneration {

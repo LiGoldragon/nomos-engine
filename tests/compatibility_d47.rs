@@ -3,14 +3,9 @@ use std::fs;
 use core_nomos::NameTreeProjectionVersion;
 use nomos_engine::NomosEngine;
 use signal_nomos::{
-    GenerationSelection, NomosSlotId, Reply, Request, SlotGeneration, TransformSelector,
+    EthosPopulationArchive, GenerationSelection, NomosSlotId, Rejection, Reply, Request,
+    SlotGeneration, TransformSelector,
 };
-
-#[expect(
-    dead_code,
-    reason = "the shared fixture surface is intentionally broader than this compatibility test"
-)]
-mod support;
 
 const ADMIN_UID: u32 = 4_100;
 const CALLER_UID: u32 = 4_200;
@@ -18,7 +13,7 @@ const FIXTURE_SLOT: NomosSlotId = NomosSlotId::new(19);
 const STATE: &[u8] = include_bytes!("goldens/d47_state/nomos.sema");
 
 #[test]
-fn d47_engine_state_restarts_transforms_and_remains_byte_exact() {
+fn d47_engine_state_restarts_and_current_unarchived_wire_is_refused() {
     let directory = tempfile::tempdir().expect("temporary d47 engine directory");
     let database = directory.path().join("nomos.sema");
     fs::write(&database, STATE).expect("copy frozen d47 engine state");
@@ -43,24 +38,20 @@ fn d47_engine_state_restarts_transforms_and_remains_byte_exact() {
         vec![NameTreeProjectionVersion::initial()]
     );
 
-    let input = support::native_input();
-    let names = input.names.clone();
     let transformed = engine
         .dispatch(
             CALLER_UID,
             Request::Transform {
                 selector: TransformSelector::Live(FIXTURE_SLOT),
-                ethos: input.archive,
+                ethos: EthosPopulationArchive::try_new(vec![0x47])
+                    .expect("non-empty historical opaque wire payload"),
             },
         )
-        .expect("transform from d47 state");
-    let Reply::Transformed(outcome) = transformed else {
-        panic!("d47 state produces a native transform");
-    };
-    assert_eq!(outcome.snapshot().identity(), slot.live);
-    engine
-        .validate_logos_population(slot.live, &names, outcome.logos_population())
-        .expect("d47 transform output remains semantically valid");
+        .expect("typed refusal from d47 state");
+    assert_eq!(
+        transformed,
+        Reply::Rejected(Rejection::EthosPopulationInvalid)
+    );
     assert_eq!(engine.commit_count().expect("mutation-free transform"), 1);
     let marker = engine.current_marker().expect("recovered marker");
     drop(engine);

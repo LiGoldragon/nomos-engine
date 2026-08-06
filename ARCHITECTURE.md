@@ -28,23 +28,23 @@ metadata. Until a public translator rename receipt verifier exists, a supplied
 opaque receipt is explicitly unsupported and the operation requires the
 configured admin Unix peer UID.
 
-Transform admits either the live binding or one retained seat and snapshots the
-full Capsule identity, slot generation, and projection version. The input is a
-canonical `EncodedPopulation<WholeEthos, EngineEthosNameTree>` archive. Its
-WholeEthos value, tuple invariants, complete item/variant declaration closure,
-derived-name realization plan, exact Universal-to-Rust reference mappings, and
-expected Logos declaration/reference closures are checked before evaluator
-entry.
+Bootstrap transformation admits either the live binding or one retained seat
+and snapshots the full Capsule identity, slot generation, and projection
+version. Its input is a production `VerifiedBootstrapAssembly`: the matching
+reader revalidates the exact authority receipt and complete prepared model, then
+`BootstrapSliceOneLowering` consumes the branded transaction directly. No
+WholeEthos value, six-slot adapter, draft reconstruction, or identity minting
+enters this path.
 
-`NativeAuthoredEvaluator` consumes the sealed authored declarations directly.
-There is no `MacroPackage`, fixture, enriched evaluator, central storage socket,
-or output-slot write. The returned native Logos population carries its complete
-declaration/reference closure. Before a reply is constructed, its bytes are
-canonically restored through `NativeLogosPopulation::from_archive_bytes` and
-rebound to the authenticated input plan.
+Prepared bootstrap transactions are explicitly `NotYetArchived`. The current
+opaque `Request::Transform` wire therefore returns the typed
+`EthosPopulationInvalid` refusal rather than inventing an archive for source and
+authority approval. The in-process result is complete `WholeLogos`; its bytes
+are restored through `WholeLogos::from_archive_bytes` before a reply is
+constructed. There is no `MacroPackage`, native WholeEthos evaluator, fixture,
+central storage socket, or output-slot write in the live daemon path.
 
-The exact ancestor and reachable-spelling closure of a complete NameTree
-remains po2.4 work and is not claimed by this slice. Slot identity, CAS policy,
-ordered generation metadata, database schema version, admin UID policy, and the
-native dual output carrier remain `[to-be-reviewed-by-psyche]`; po2.8 owns
-retiring the temporary generation-class selection.
+Slot identity, CAS policy, ordered generation metadata, database schema version,
+admin UID policy, and the native dual output carrier remain
+`[to-be-reviewed-by-psyche]`; po2.8 owns retiring the temporary generation-class
+selection.

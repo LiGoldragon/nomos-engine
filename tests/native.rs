@@ -1,118 +1,65 @@
-use core_ethos::{
-    WholeEthos, WholeEthosAttributes, WholeEthosItem, WholeEthosNewtype, WholeEthosTypeReference,
-    WholeEthosVisibility, WholeEthosWrappedField,
-};
-use core_nomos::NameTransform;
-use name_table::LocalEncodedId;
-use nomos_engine::{
-    EngineEthosNameTree, EngineNameRealization, EngineReferenceMapping, Error, NameTreeError,
-    encode_ethos_population,
-};
+use core_logos::{WholeLogosItem, WholeLogosVariantPayload};
+use core_nomos::BootstrapSliceOneLowering;
+use nomos_engine::Error;
 use signal_nomos::CommitMarker;
-use signal_sema_translator::{VocabularyEncodedId, VocabularyRoot};
 
-fn identity(root: VocabularyRoot, chain: &[u16]) -> VocabularyEncodedId {
-    VocabularyEncodedId::new(
-        root,
-        chain.iter().copied().map(LocalEncodedId::new).collect(),
-    )
-    .expect("non-empty identity")
-}
+#[expect(
+    dead_code,
+    reason = "the shared fixture surface also carries authored Capsule construction"
+)]
+mod support;
 
 #[test]
-fn reference_mapping_is_exact_across_same_leaf_different_ancestors() {
-    let mapped_source = identity(VocabularyRoot::Universal, &[4, 1]);
-    let homonym = identity(VocabularyRoot::Universal, &[5, 1]);
-    let target = identity(VocabularyRoot::Rust, &[8, 2]);
-    let tree = EngineEthosNameTree::try_new(
-        vec![mapped_source.clone(), homonym.clone()],
-        Vec::new(),
-        vec![
-            EngineReferenceMapping::try_new(mapped_source.clone(), target.clone())
-                .expect("mapping"),
-        ],
-        Vec::new(),
-        Vec::new(),
-    )
-    .expect("complete plan");
-    assert_eq!(tree.mapped_reference(&mapped_source), target);
-    assert_eq!(tree.mapped_reference(&homonym), homonym);
-}
+fn sealed_bootstrap_transaction_revalidates_and_lowers_directly() {
+    let input = support::bootstrap_input();
+    input
+        .assembly
+        .reader()
+        .validate_transaction(input.assembly.transaction())
+        .expect("matching reader revalidates authority receipt and prepared model");
+    let logos = BootstrapSliceOneLowering::new()
+        .lower(input.assembly.reader(), input.assembly.transaction())
+        .expect("Core Nomos lowers the sealed transaction directly");
 
-#[test]
-fn colliding_realization_targets_are_refused_before_evaluation() {
-    let first = identity(VocabularyRoot::Universal, &[1]);
-    let second = identity(VocabularyRoot::Universal, &[2]);
-    let target = identity(VocabularyRoot::Universal, &[9]);
-    let result = EngineEthosNameTree::try_new(
-        vec![first.clone(), second.clone()],
-        vec![
-            EngineNameRealization::try_new(first, NameTransform::PascalCase, target.clone())
-                .expect("realization"),
-            EngineNameRealization::try_new(second, NameTransform::PascalCase, target.clone())
-                .expect("realization"),
-        ],
-        Vec::new(),
-        vec![target],
-        Vec::new(),
+    let [
+        WholeLogosItem::Newtype(wrapped),
+        WholeLogosItem::Enumeration(choice),
+    ] = logos.items()
+    else {
+        panic!("canonical transaction order contains Wrapped then Choice")
+    };
+    assert_eq!(wrapped.name(), &input.wrapped);
+    assert_eq!(choice.name(), &input.choice);
+    assert_eq!(
+        choice
+            .variants()
+            .iter()
+            .map(|variant| variant.name())
+            .collect::<Vec<_>>(),
+        [&input.none, &input.some, &input.pair]
     );
-    assert!(matches!(
-        result,
-        Err(NameTreeError::DuplicateRealizationTarget)
-    ));
-}
-
-#[test]
-fn ethos_population_refuses_missing_declaration_closure_and_wrong_roots() {
-    let name = identity(VocabularyRoot::Universal, &[30, 1]);
-    let reference = identity(VocabularyRoot::Universal, &[40, 1]);
-    let ethos = WholeEthos::new(vec![WholeEthosItem::Newtype(WholeEthosNewtype::new(
-        name,
-        WholeEthosVisibility::Public,
-        WholeEthosAttributes::empty(),
-        WholeEthosWrappedField::new(
-            WholeEthosVisibility::Private,
-            WholeEthosTypeReference::Identity(reference),
-        ),
-    ))]);
-    let empty_names =
-        EngineEthosNameTree::try_new(Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new())
-            .expect("empty plan");
-    assert!(encode_ethos_population(ethos, empty_names).is_err());
-
-    let wrong_root = WholeEthos::new(vec![WholeEthosItem::Newtype(WholeEthosNewtype::new(
-        identity(VocabularyRoot::Rust, &[30, 1]),
-        WholeEthosVisibility::Public,
-        WholeEthosAttributes::empty(),
-        WholeEthosWrappedField::new(
-            WholeEthosVisibility::Private,
-            WholeEthosTypeReference::Identity(identity(VocabularyRoot::Universal, &[40, 1])),
-        ),
-    ))]);
-    let wrong_root_names = EngineEthosNameTree::try_new(
-        vec![identity(VocabularyRoot::Rust, &[30, 1])],
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
+    let WholeLogosVariantPayload::Tuple(product) = choice.variants()[2].payload() else {
+        panic!("Pair remains a product variant")
+    };
+    assert_eq!(product.fields().len(), 2);
+    assert_eq!(
+        input.assembly.canonical_source(),
+        "Nexus.{1 0 0}\n[]\n{\n  []\n  [Wrapped.Vector<Option<String>> Choice.[None Some.String Pair.{Map<String Integer> Boolean}]]\n}\n"
     );
-    assert!(wrong_root_names.is_err());
-    let empty_names =
-        EngineEthosNameTree::try_new(Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new())
-            .expect("empty plan");
-    assert!(encode_ethos_population(wrong_root, empty_names).is_err());
 }
 
 #[test]
-fn production_sources_exclude_legacy_and_central_storage_paths() {
+fn production_surface_is_bootstrap_sealed_and_exactly_pinned() {
     let library = include_str!("../src/lib.rs");
     let store = include_str!("../src/store.rs");
     let manifest = include_str!("../Cargo.toml");
+    let lockfile = include_str!("../Cargo.lock");
     for forbidden in [
         "MacroPackage",
-        "apply_enriched",
-        "enriched_fixture",
-        "wire_fixture",
+        "NativeAuthoredEvaluator",
+        "EngineEthosNameTree",
+        "EncodedPopulation<WholeEthos",
+        "encode_ethos_population",
         "signal-sema-storage",
         "signal_sema_storage",
         "SemaPlane",
@@ -126,18 +73,29 @@ fn production_sources_exclude_legacy_and_central_storage_paths() {
             "production reachability contains {forbidden}"
         );
     }
-    assert!(store.contains("EngineOpen::new"));
-    assert!(store.contains("NativeAuthoredEvaluator"));
-    assert!(store.contains("NativeLogosPopulation::<EngineLogosNameTree>::from_archive_bytes"));
-    assert!(manifest.contains("version = \"0.13.0\""));
-    for revision in [
-        "7bb9c5a0a31851641998b26f14326515ca64a7e8",
-        "6470efc171a2acb652fba7d512f76c26f7a53d82",
-        "d5b102c339612e68e357a34792b016af3af5254f",
+    for required in [
+        "VerifiedBootstrapAssembly",
+        "BootstrapSliceOneLowering",
+        "transform_bootstrap",
+        "EthosPopulationInvalid",
     ] {
+        assert!(store.contains(required), "missing live boundary {required}");
+    }
+    assert!(manifest.contains("version = \"0.16.0\""));
+    for revision in [
+        "db5a97a573113202e4de6c97e71b33491bd9666f",
+        "abee4036fbeb58c767ef7dc3489804e2afd5c6e1",
+        "250e728fa9e5a02e3c9a6d4f0cfee0683863df83",
+        "22de53fced0eff372930f5b7baec0c667f1a16d5",
+        "bdcf54021e880f75ab693d00e3707478ca7de487",
+        "1da83e03cdc5cea10e529d081d5a10437bd6628e",
+        "3a26cb43f8ce7f9fe85da64d19aa55aa662943ce",
+        "413e3744569ca237e837a1fd57d9ba6ad6adc3de",
+    ] {
+        assert!(manifest.contains(revision), "missing exact pin {revision}");
         assert!(
-            manifest.contains(revision),
-            "missing coherent pin {revision}"
+            lockfile.contains(revision),
+            "lockfile does not resolve exact pin {revision}"
         );
     }
 }

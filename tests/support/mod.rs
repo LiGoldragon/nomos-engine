@@ -1,9 +1,10 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-use core_ethos::{
-    WholeEthos, WholeEthosAttributes, WholeEthosEnumeration, WholeEthosItem, WholeEthosNewtype,
-    WholeEthosTupleFields, WholeEthosTypeReference, WholeEthosVariant, WholeEthosVariantPayload,
-    WholeEthosVisibility, WholeEthosWrappedField,
+use core_ethos::bootstrap::{
+    BootstrapCatalog, BootstrapGrammarIdentities, BootstrapPriorIdentities,
+    BootstrapPriorVocabulary, BootstrapVersionPolicy, CanonicalIdentityOrder, EthosKind,
+    EthosVersion, IdentitySchema, IdentitySchemaCatalog, InterfaceRole, NomosSchema, SchemaRole,
+    TextualMetadataRecord, TextualMetadataSnapshot, TextualProjectionAddress,
 };
 use core_logos::{LogosLanguage, LogosLanguageTypeIds, LogosLanguageWords};
 use core_nomos::{
@@ -14,10 +15,11 @@ use core_nomos::{
     TemplateFutureOutput, TemplateLandingShape, TemplateLanguage, TemplateTerm, TemplateValue,
 };
 use name_table::LocalEncodedId;
-use nomos_engine::{
-    EngineEthosNameTree, EngineNameRealization, EngineReferenceMapping, encode_ethos_population,
+use sema_translator::bootstrap::{
+    AuthorizedBootstrapTransition, BootstrapAuthorityIdentity, BootstrapAuthorityRevision,
+    BootstrapTransactionAssembler, VerifiedBootstrapAssembly,
 };
-use signal_nomos::{EthosPopulationArchive, NomosDeploymentArtifacts};
+use signal_nomos::NomosDeploymentArtifacts;
 use signal_sema_translator::{VocabularyEncodedId, VocabularyRoot};
 use structural_codec::{LandingShape, LeafCodec, ScalarValue, StableRoleId};
 
@@ -117,93 +119,172 @@ pub fn authored_artifacts(seed: u16) -> NomosDeploymentArtifacts {
     .expect("deployment artifacts")
 }
 
-pub struct NativeInput {
-    pub archive: EthosPopulationArchive,
-    pub names: EngineEthosNameTree,
-    pub mapping_source: VocabularyEncodedId,
-    pub mapped_reference: VocabularyEncodedId,
-    pub preserved_reference: VocabularyEncodedId,
+pub struct BootstrapInput {
+    pub assembly: VerifiedBootstrapAssembly,
+    pub wrapped: VocabularyEncodedId,
+    pub choice: VocabularyEncodedId,
+    pub none: VocabularyEncodedId,
+    pub some: VocabularyEncodedId,
+    pub pair: VocabularyEncodedId,
 }
 
-pub fn native_input() -> NativeInput {
-    native_input_with_realization_parent(700)
-}
-
-pub fn alternate_native_input() -> NativeInput {
-    native_input_with_realization_parent(701)
-}
-
-fn native_input_with_realization_parent(realization_parent: u16) -> NativeInput {
-    let newtype_name = encoded(VocabularyRoot::Universal, &[500, 1]);
-    let enumeration_name = encoded(VocabularyRoot::Universal, &[500, 2]);
-    let variant_name = encoded(VocabularyRoot::Universal, &[500, 2, 1]);
-    let realized_newtype = encoded(VocabularyRoot::Universal, &[realization_parent, 1]);
-    let realized_enumeration = encoded(VocabularyRoot::Universal, &[realization_parent, 2]);
-    let mapped_source = encoded(VocabularyRoot::Universal, &[600, 4, 1]);
-    let preserved_source = encoded(VocabularyRoot::Universal, &[601, 4, 1]);
-    let mapped_target = encoded(VocabularyRoot::Rust, &[800, 1]);
-
-    let ethos = WholeEthos::new(vec![
-        WholeEthosItem::Newtype(WholeEthosNewtype::new(
-            newtype_name.clone(),
-            WholeEthosVisibility::Public,
-            WholeEthosAttributes::empty(),
-            WholeEthosWrappedField::new(
-                WholeEthosVisibility::Private,
-                WholeEthosTypeReference::Identity(mapped_source.clone()),
-            ),
-        )),
-        WholeEthosItem::Enumeration(WholeEthosEnumeration::new(
-            enumeration_name.clone(),
-            WholeEthosVisibility::Public,
-            WholeEthosAttributes::empty(),
-            vec![WholeEthosVariant::new(
-                variant_name.clone(),
-                WholeEthosAttributes::empty(),
-                WholeEthosVariantPayload::Tuple(
-                    WholeEthosTupleFields::new(vec![WholeEthosTypeReference::Identity(
-                        preserved_source.clone(),
-                    )])
-                    .expect("non-empty tuple"),
-                ),
-            )],
-        )),
+pub fn bootstrap_input() -> BootstrapInput {
+    let (catalog, before) = bootstrap_catalog();
+    let wrapped = encoded(VocabularyRoot::Universal, &[100]);
+    let choice = encoded(VocabularyRoot::Universal, &[101]);
+    let none = encoded(VocabularyRoot::Universal, &[102]);
+    let some = encoded(VocabularyRoot::Universal, &[103]);
+    let pair = encoded(VocabularyRoot::Universal, &[104]);
+    let mut records = before.records().to_vec();
+    records.extend([
+        metadata_record(&["app"], None, "Wrapped", wrapped.clone()),
+        metadata_record(&["app"], None, "Choice", choice.clone()),
+        metadata_record(&["app"], Some(choice.clone()), "None", none.clone()),
+        metadata_record(&["app"], Some(choice.clone()), "Some", some.clone()),
+        metadata_record(&["app"], Some(choice.clone()), "Pair", pair.clone()),
     ]);
-    let names = EngineEthosNameTree::try_new(
-        vec![
-            newtype_name.clone(),
-            enumeration_name.clone(),
-            variant_name.clone(),
-        ],
-        vec![
-            EngineNameRealization::try_new(
-                newtype_name,
-                NameTransform::PascalCase,
-                realized_newtype.clone(),
-            )
-            .expect("newtype realization"),
-            EngineNameRealization::try_new(
-                enumeration_name,
-                NameTransform::PascalCase,
-                realized_enumeration.clone(),
-            )
-            .expect("enumeration realization"),
-        ],
-        vec![
-            EngineReferenceMapping::try_new(mapped_source.clone(), mapped_target.clone())
-                .expect("exact reference mapping"),
-        ],
-        vec![realized_newtype, realized_enumeration, variant_name],
-        vec![mapped_target.clone(), preserved_source.clone()],
+    let canonical_bytes = [
+        wrapped.clone(),
+        choice.clone(),
+        none.clone(),
+        some.clone(),
+        pair.clone(),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, identity)| (identity, vec![0x90, index as u8]))
+    .collect();
+    let approval = AuthorizedBootstrapTransition::new(
+        TextualMetadataSnapshot::new(records).expect("complete approved metadata"),
+        canonical_bytes,
+        BTreeMap::new(),
+    );
+    let assembler = BootstrapTransactionAssembler::new(
+        BootstrapAuthorityIdentity::new([0x42; 32]),
+        BootstrapAuthorityRevision::new(1),
+        BootstrapGrammarIdentities {
+            document: encoded(VocabularyRoot::Universal, &[900]),
+            syntax: encoded(VocabularyRoot::Universal, &[901]),
+        },
+        catalog,
+    );
+    let source = "Nexus.{1 0 0}\n[]\n{[] [Wrapped.Vector<Option<String>> Choice.[None Some.String Pair.{Map<String Integer> Boolean}]]}";
+    let assembly = assembler
+        .assemble(source, approval)
+        .expect("authority-sealed bootstrap transaction");
+    BootstrapInput {
+        assembly,
+        wrapped,
+        choice,
+        none,
+        some,
+        pair,
+    }
+}
+
+fn bootstrap_catalog() -> (BootstrapCatalog, TextualMetadataSnapshot) {
+    let prior_specs = [
+        (
+            1,
+            "Interface",
+            vec![SchemaRole::FileKind(EthosKind::Interface)],
+        ),
+        (2, "Nexus", vec![SchemaRole::FileKind(EthosKind::Nexus)]),
+        (3, "Sema", vec![SchemaRole::FileKind(EthosKind::Sema)]),
+        (
+            4,
+            "Input",
+            vec![SchemaRole::InterfaceRole(InterfaceRole::Input)],
+        ),
+        (
+            5,
+            "Output",
+            vec![SchemaRole::InterfaceRole(InterfaceRole::Output)],
+        ),
+        (
+            6,
+            "Refusal",
+            vec![SchemaRole::InterfaceRole(InterfaceRole::Refusal)],
+        ),
+        (7, "String", vec![SchemaRole::Nominal { persistent: true }]),
+        (8, "Integer", vec![SchemaRole::Nominal { persistent: true }]),
+        (9, "Boolean", vec![SchemaRole::Nominal { persistent: true }]),
+        (10, "Unit", vec![SchemaRole::Nominal { persistent: true }]),
+        (11, "Vector", vec![SchemaRole::Shape { arity: 1 }]),
+        (12, "Option", vec![SchemaRole::Shape { arity: 1 }]),
+        (13, "Map", vec![SchemaRole::Shape { arity: 2 }]),
+        (14, "Result", vec![SchemaRole::Shape { arity: 2 }]),
+        (
+            15,
+            "Stream",
+            vec![
+                SchemaRole::Shape { arity: 1 },
+                SchemaRole::Nomos(NomosSchema::StreamInitiation { arity: 2 }),
+            ],
+        ),
+        (16, "StreamIdentity", vec![SchemaRole::Shape { arity: 1 }]),
+    ];
+    let mut records = Vec::new();
+    let mut schemas = Vec::new();
+    let mut order = Vec::new();
+    for (local, name, roles) in prior_specs {
+        let identity = encoded(VocabularyRoot::Universal, &[local]);
+        records.push(metadata_record(&["builtin"], None, name, identity.clone()));
+        schemas.push(IdentitySchema::new(identity.clone(), roles).expect("valid prior schema"));
+        order.push((identity, vec![0x80, local as u8]));
+    }
+    let before = TextualMetadataSnapshot::new(records).expect("unique prior metadata");
+    let schemas = IdentitySchemaCatalog::new(schemas).expect("unique prior schemas");
+    let canonical = CanonicalIdentityOrder::new(order).expect("unique prior ordering");
+    let priors = BootstrapPriorVocabulary::new(
+        BootstrapPriorIdentities {
+            interface_kind: encoded(VocabularyRoot::Universal, &[1]),
+            nexus_kind: encoded(VocabularyRoot::Universal, &[2]),
+            sema_kind: encoded(VocabularyRoot::Universal, &[3]),
+            input_role: encoded(VocabularyRoot::Universal, &[4]),
+            output_role: encoded(VocabularyRoot::Universal, &[5]),
+            refusal_role: encoded(VocabularyRoot::Universal, &[6]),
+            string_type: encoded(VocabularyRoot::Universal, &[7]),
+            integer_type: encoded(VocabularyRoot::Universal, &[8]),
+            boolean_type: encoded(VocabularyRoot::Universal, &[9]),
+            unit_type: encoded(VocabularyRoot::Universal, &[10]),
+            vector_shape: encoded(VocabularyRoot::Universal, &[11]),
+            option_shape: encoded(VocabularyRoot::Universal, &[12]),
+            map_shape: encoded(VocabularyRoot::Universal, &[13]),
+            result_shape: encoded(VocabularyRoot::Universal, &[14]),
+            stream_nomos: encoded(VocabularyRoot::Universal, &[15]),
+            stream_shape: encoded(VocabularyRoot::Universal, &[15]),
+            stream_identity_shape: encoded(VocabularyRoot::Universal, &[16]),
+        },
+        &schemas,
+        &before,
     )
-    .expect("complete authenticated native plan");
-    let archive = encode_ethos_population(ethos, names.clone()).expect("valid Ethos population");
-    NativeInput {
-        archive,
-        names,
-        mapping_source: mapped_source,
-        mapped_reference: mapped_target,
-        preserved_reference: preserved_source,
+    .expect("valid bootstrap prior vocabulary");
+    let catalog = BootstrapCatalog::new(
+        vec!["app".to_owned()],
+        before.clone(),
+        schemas,
+        priors,
+        BootstrapVersionPolicy::exact(EthosVersion::new(1, 0, 0)),
+        canonical,
+    )
+    .expect("valid bootstrap catalog");
+    (catalog, before)
+}
+
+fn metadata_record(
+    module: &[&str],
+    owner: Option<VocabularyEncodedId>,
+    name: &str,
+    identity: VocabularyEncodedId,
+) -> TextualMetadataRecord {
+    TextualMetadataRecord {
+        address: TextualProjectionAddress {
+            module_path: module.iter().map(|part| (*part).to_owned()).collect(),
+            lexical_owner: owner,
+            visible_name: name.to_owned(),
+        },
+        encoded_name: identity,
     }
 }
 

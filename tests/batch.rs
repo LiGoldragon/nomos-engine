@@ -1,4 +1,4 @@
-use batch_core_ethos::{EthosDecodeError, WholeEthosFileKind};
+use core_ethos::{EthosDecodeError, WholeEthosFileKind};
 use nomos_engine::batch::{
     BatchComponent, BatchConfiguration, BatchGenerationError, BatchImportError,
     BatchOutcomeReporting, OfflineBatchConfiguration, OfflineBatchGeneration,
@@ -160,7 +160,7 @@ fn external_storage_successor_configuration_requires_complete_abi_evidence() {
             .prepare(),
         Err(
             nomos_engine::batch::BatchConfigurationError::StorageProvenance(
-                batch_core_nomos::NexusTransformationError::ArchiveAbiCheckNotProven {
+                core_nomos::NexusTransformationError::ArchiveAbiCheckNotProven {
                     check: "archive bytes"
                 }
             )
@@ -244,7 +244,7 @@ fn imported_types_require_exact_caller_owned_paths_and_storage_contracts() {
 
     match generator.generate_bundle(&[BatchComponent::standalone(IMPORTED_RECORD_SEMA)]) {
         Err(BatchGenerationError::Projection(
-            batch_core_nomos::NexusTransformationError::SemaTableRecordNotBundleOwned { .. },
+            core_nomos::NexusTransformationError::SemaTableRecordNotBundleOwned { .. },
         )) => {}
         Err(error) => panic!("unexpected imported-record Sema refusal: {error}"),
         Ok(_) => panic!("partial imported-record Sema output unexpectedly generated"),
